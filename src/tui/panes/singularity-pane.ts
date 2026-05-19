@@ -87,6 +87,7 @@ export class SingularityPane {
 	#term: Terminal;
 
 	#lastError: string | null = null;
+	#startupError: string | null = null;
 	#exited: { exitCode?: number; signal?: number } | null = null;
 
 	#startedAt: number | null = null;
@@ -108,6 +109,7 @@ export class SingularityPane {
 		env?: Record<string, string>;
 		args?: string[];
 		onDirty?: () => void;
+		startupError?: string;
 	}) {
 		this.#ompCli = opts.ompCli;
 		this.#cwd = opts.cwd;
@@ -119,6 +121,9 @@ export class SingularityPane {
 		this.#tools = opts.tools;
 		this.#extensions = Array.isArray(opts.extensions) ? [...opts.extensions] : [];
 		this.#extraEnv = opts.env;
+		if (typeof opts.startupError === "string" && opts.startupError.trim().length > 0) {
+			this.#startupError = opts.startupError;
+		}
 
 		this.#cols = Math.max(1, opts.cols);
 		this.#rows = Math.max(1, opts.rows);
@@ -139,6 +144,7 @@ export class SingularityPane {
 
 	start(appendSystemPrompt?: string): void {
 		if (this.#pty) return;
+		if (this.#startupError) return;
 
 		this.#lastError = null;
 		this.#exited = null;
@@ -299,6 +305,16 @@ export class SingularityPane {
 				term(" ".repeat(width));
 			}
 		};
+
+		if (this.#startupError) {
+			const lines = this.#startupError.split("\n");
+			for (let row = 0; row < height; row += 1) {
+				term.moveTo(region.x, region.y + row);
+				const text = row < lines.length ? lines[row] ?? "" : "";
+				term(clipPad(text, width));
+			}
+			return;
+		}
 
 		if (this.#lastError) {
 			term.moveTo(region.x, region.y);

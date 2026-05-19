@@ -1103,10 +1103,11 @@ describe("AgentLoop delegation", () => {
 		expect(spawned).toEqual([]);
 	});
 
-	test("tasks without dependencies still require explicit startTasks after close", async () => {
+	test("handleFinisherCloseTask auto-spawns no-deps follow-up tasks via safety net when running", async () => {
 		const { loop, calls } = createLoopFixture();
-		const autoSpawned: string[] = [];
-		const manualSpawned: string[] = [];
+		const spawned: string[] = [];
+		(loop as unknown as { running: boolean }).running = true;
+
 		(
 			loop as unknown as {
 				pipelineManager: {
@@ -1118,10 +1119,7 @@ describe("AgentLoop delegation", () => {
 		).pipelineManager = {
 			availableWorkerSlots: () => 2,
 			isPipelineInFlight: () => false,
-			kickoffNewTaskPipeline: (task: { id: string }) => {
-				autoSpawned.push(task.id);
-				manualSpawned.push(task.id);
-			},
+			kickoffNewTaskPipeline: (task: { id: string }) => spawned.push(task.id),
 		} as never;
 
 		(
@@ -1139,12 +1137,55 @@ describe("AgentLoop delegation", () => {
 		} as never;
 
 		await loop.handleFinisherCloseTask({ taskId: "task-a", reason: "done" });
+		// Safety-net startTasks() is fire-and-forget; wait for the microtask queue to drain.
+		await Bun.sleep(5);
+
 		expect(calls.close).toEqual([{ taskId: "task-a", reason: "done" }]);
-		expect(autoSpawned).toEqual([]);
+		expect(spawned).toEqual(["task-free"]);
+	});
+
+	test("handleFinisherCloseTask safety net does not spawn when loop is not running", async () => {
+		const { loop, calls } = createLoopFixture();
+		const spawned: string[] = [];
+
+		(
+			loop as unknown as {
+				pipelineManager: {
+					availableWorkerSlots: () => number;
+					isPipelineInFlight: (_taskId: string) => boolean;
+					kickoffNewTaskPipeline: (task: { id: string }) => void;
+				};
+			}
+		).pipelineManager = {
+			availableWorkerSlots: () => 2,
+			isPipelineInFlight: () => false,
+			kickoffNewTaskPipeline: (task: { id: string }) => spawned.push(task.id),
+		} as never;
+
+		(
+			loop as unknown as {
+				scheduler: {
+					findTasksUnblockedBy: (taskId: string) => Promise<unknown[]>;
+					getInProgressTasksWithoutAgent: () => Promise<unknown[]>;
+					getNextTasks: (_count: number) => Promise<unknown[]>;
+				};
+			}
+		).scheduler = {
+			findTasksUnblockedBy: async () => [],
+			getInProgressTasksWithoutAgent: async () => [],
+			getNextTasks: async () => [{ id: "task-free" }],
+		} as never;
+
+		await loop.handleFinisherCloseTask({ taskId: "task-a", reason: "done" });
+		await Bun.sleep(5);
+
+		expect(calls.close).toEqual([{ taskId: "task-a", reason: "done" }]);
+		// Safety net short-circuits while loop is stopped → explicit startTasks still required.
+		expect(spawned).toEqual([]);
 
 		(loop as unknown as { running: boolean }).running = true;
 		expect(await loop.startTasks(1)).toEqual({ spawned: 1, taskIds: ["task-free"] });
-		expect(manualSpawned).toEqual(["task-free"]);
+		expect(spawned).toEqual(["task-free"]);
 	});
 });
 

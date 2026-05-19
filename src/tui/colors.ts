@@ -6,7 +6,7 @@ import { getAgentSpawnConfig } from "../config/constants";
 
 // Foreground colors
 export const FG = {
-	accent: "\x1b[38;2;254;188;56m", // #febc38 gold
+	accent: "\x1b[38;2;137;210;129m", // #89d281 green
 	border: "\x1b[38;2;23;143;185m", // #178fb9 blue
 	success: "\x1b[38;2;137;210;129m", // #89d281 green
 	error: "\x1b[38;2;252;58;75m", // #fc3a4b red

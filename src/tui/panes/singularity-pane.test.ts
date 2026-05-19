@@ -304,3 +304,46 @@ describe("renderBufferLineAnsi", () => {
 		expect(Boolean(roundTripPlainCell.isBlink())).toBe(false);
 	});
 });
+
+describe("SingularityPane startupError", () => {
+	test("renders preseeded startupError lines and refuses to spawn omp", async () => {
+		const cols = 60;
+		const rows = 6;
+		const message = ["Singularity extensions failed to load (1/7).", "  - tasks-command.ts: file not found"].join(
+			"\n",
+		);
+
+		const pane = new SingularityPane({
+			ompCli: "bun",
+			args: ["-e", "process.exit(0)"],
+			cwd: process.cwd(),
+			cols,
+			rows,
+			startupError: message,
+		});
+
+		// start() must be a no-op when startupError is set.
+		pane.start();
+
+		const lines = await renderPaneLines(pane, cols, rows);
+		expect(lines[0]?.trim()).toBe("Singularity extensions failed to load (1/7).");
+		expect(lines[1]?.trim()).toBe("- tasks-command.ts: file not found");
+	});
+
+	test("ignores empty / whitespace-only startupError", async () => {
+		const cols = 30;
+		const rows = 3;
+		const pane = new SingularityPane({
+			ompCli: "bun",
+			args: ["-e", "process.exit(0)"],
+			cwd: process.cwd(),
+			cols,
+			rows,
+			startupError: "   ",
+		});
+
+		const lines = await renderPaneLines(pane, cols, rows);
+		// Without startupError the pane shows the "starting" placeholder, not the error.
+		expect(lines[0]?.startsWith("Singularity extensions failed")).toBe(false);
+	});
+});

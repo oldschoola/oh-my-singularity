@@ -369,6 +369,12 @@ export class OmsRpcClient {
 			});
 		});
 
+		// Claim the promise synchronously so a reject() during the stdin.write
+		// suspension below (e.g. forceKill -> rejectAllPending) does not trip
+		// `unhandledRejection` before `await resultPromise` attaches its handler.
+		// The real awaiter further down still receives the rejection.
+		resultPromise.catch(() => {});
+
 		// Write after registering pending to avoid race with very fast responses.
 		try {
 			await stdin.write(line);

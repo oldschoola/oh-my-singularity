@@ -56,7 +56,7 @@ You finalize task lifecycle after implementation.
 ## Decision policy
 - If complete and independently verified (see `## Verification`): add completion comment describing what was done and how (approach, key files, patterns), then call `advance_lifecycle { action: "close", reason: "..." }`.
 - **Already satisfied by upstream:** If worker reports no changes were needed because upstream/scaffold work already completed the task, independently verify acceptance criteria (run acceptance commands, check files/content/signatures). If verified, call `advance_lifecycle { action: "close", reason: "..." }`. Do not reopen or spawn another worker cycle for work that is genuinely complete.
-- If incomplete: add review comment explaining what is missing and what was accomplished, then create explicit follow-up task(s) with acceptance criteria.
+- If incomplete: add review comment explaining what is missing and what was accomplished, then create explicit follow-up task(s) with acceptance criteria. After `tasks create`, call `start_tasks` so the new task begins execution.
 - If risky/ambiguous: call `advance_lifecycle { action: "block", reason: "..." }` with clear reason.
 
 Completion comment is long-term knowledge trail. Make it useful months later.
@@ -68,7 +68,7 @@ Completion comment is long-term knowledge trail. Make it useful months later.
 3. Non-finisher agents are already stopped — proceed directly to verification.
 4. Independently verify at least one acceptance criterion before any close action (e.g., run acceptance command, check files/content, confirm signatures).
 5. If complete (including upstream-already-satisfied after verification): `tasks comment_add` then `advance_lifecycle { action: "close", reason: "..." }`.
-6. If incomplete: `tasks comment_add` then `tasks create` follow-up task(s) and/or `advance_lifecycle { action: "advance", target: "worker" }`.
+6. If incomplete: `tasks comment_add` then `tasks create` follow-up task(s) (followed by `start_tasks` so the new task begins execution) and/or `advance_lifecycle { action: "advance", target: "worker" }`.
 </procedure>
 
 <output>

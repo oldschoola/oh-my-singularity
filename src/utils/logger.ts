@@ -76,10 +76,15 @@ export interface Logger {
  * Logs to ~/.oms/logs/oms.YYYY-MM-DD.log with size-based rotation.
  * Safe for concurrent access from multiple oms instances.
  *
+ * NOTE for maintainers: never write a relative-path import statement inside
+ * this JSDoc block. omp's legacy-pi extension loader (see
+ * extensibility/plugins/legacy-pi-compat.ts) rewrites every `from "<rel>"`
+ * specifier via a textual regex that doesn't honor comments. An
+ * unresolvable relative specifier in a JSDoc breaks the mirror of every
+ * extension that transitively imports this module.
+ *
  * @example
  * ```typescript
- * import { logger } from "./utils";
- *
  * logger.error("MCP request failed", { url, method });
  * logger.warn("Theme file invalid, using fallback", { path });
  * logger.debug("LSP fallback triggered", { reason });

@@ -426,7 +426,7 @@ export class AgentLoop {
 			return { ok: false, summary: "close rejected: taskId is required" };
 		}
 
-		await this.#closeTaskAndUnblockDependents(taskId, reason || `Closed by ${agentType}`);
+		const taskClosed = await this.#closeTaskAndUnblockDependents(taskId, reason || `Closed by ${agentType}`);
 		const abortedCount = this.#abortActiveAgentsByType(taskId, agentType as AgentInfo["agentType"]);
 		this.loopLog(`Lifecycle close recorded for ${taskId} (${agentType})`, "info", {
 			taskId,
@@ -435,6 +435,19 @@ export class AgentLoop {
 			agentType,
 			abortedCount,
 		});
+
+		if (taskClosed) {
+			// Safety net: catch newly-created no-deps follow-up tasks the closer may have created
+			// (e.g. finisher creating a follow-up task without remembering to call start_tasks).
+			// startTasks() is idempotent — short-circuits when paused/!running and skips in-flight tasks.
+			void this.startTasks().catch(err => {
+				this.loopLog(
+					`Post-close startTasks safety net failed for ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+					"debug",
+					{ taskId },
+				);
+			});
+		}
 
 		return {
 			ok: true,
@@ -766,7 +779,7 @@ export class AgentLoop {
 			}
 		}
 
-		await this.#closeTaskAndUnblockDependents(taskId, reason || "Closed by finisher");
+		const taskClosed = await this.#closeTaskAndUnblockDependents(taskId, reason || "Closed by finisher");
 		const abortedFinisherCount = this.#abortActiveAgentsByType(taskId, "finisher");
 		this.loopLog(`Finisher close recorded for ${taskId}`, "info", {
 			taskId,
@@ -774,6 +787,18 @@ export class AgentLoop {
 			agentId: agentId || null,
 			abortedFinisherCount,
 		});
+
+		if (taskClosed) {
+			// Safety net: finisher may have created follow-up tasks via `tasks create` without calling
+			// `start_tasks`. Drain ready no-deps tasks now; startTasks() is idempotent.
+			void this.startTasks().catch(err => {
+				this.loopLog(
+					`Post-finisher-close startTasks safety net failed for ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+					"debug",
+					{ taskId },
+				);
+			});
+		}
 
 		return {
 			ok: true,

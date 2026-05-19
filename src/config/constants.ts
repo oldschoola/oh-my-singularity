@@ -98,7 +98,7 @@ export const SINGULARITY_EXTENSION_FILENAMES = [
 
 const WORKER_TOOLS = "bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task";
 
-const FINISHER_TOOLS = "bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task";
+const FINISHER_TOOLS = "bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,start_tasks";
 
 const MERGER_TOOLS = "bash,read,grep,find";
 
@@ -178,6 +178,9 @@ const BLOCK_AND_ADVANCE: ReadonlySet<LifecycleAction> = new Set(["block", "advan
  */
 export const AGENT_CONFIGS = {
 	singularity: {
+		// Singularity is launched directly by tui.ts / pipe.ts (not via AgentSpawner.spawnAgent),
+		// so the spawner-driven extensionKeys list does not apply. Extensions are loaded from
+		// SINGULARITY_EXTENSION_FILENAMES and wired through SingularityPane's --extension args.
 		extensionKeys: [],
 		defaultTools: "",
 		stripBash: false,

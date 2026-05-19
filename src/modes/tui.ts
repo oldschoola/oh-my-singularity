@@ -287,31 +287,60 @@ export async function runTuiMode(opts: {
 
 	const { candidates: singularityExtensionCandidates } = resolveSingularityExtensionCandidates();
 	const singularityExtensions: string[] = [];
+	const singularityExtensionFailures: { extensionPath: string; reason: string }[] = [];
 	for (const extensionPath of singularityExtensionCandidates) {
 		if (!fs.existsSync(extensionPath)) {
+			const reason = "file not found";
+			singularityExtensionFailures.push({ extensionPath, reason });
 			opts.registry.pushEvent(opts.systemAgentId, {
 				type: "log",
 				ts: Date.now(),
-				level: "warn",
+				level: "error",
 				message: `Singularity extension not found: ${extensionPath}`,
-				data: { extensionPath },
+				data: { extensionPath, reason },
 			});
 			continue;
 		}
 
 		const probe = await probeExtensionLoad(extensionPath);
 		if (!probe.ok) {
+			const reason = probe.reason ?? "unknown";
+			singularityExtensionFailures.push({ extensionPath, reason });
 			opts.registry.pushEvent(opts.systemAgentId, {
 				type: "log",
 				ts: Date.now(),
-				level: "warn",
-				message: `Skipping singularity extension: ${extensionPath}`,
-				data: { extensionPath, reason: probe.reason ?? "unknown" },
+				level: "error",
+				message: `Singularity extension failed probe: ${extensionPath}`,
+				data: { extensionPath, reason },
 			});
 			continue;
 		}
 
 		singularityExtensions.push(extensionPath);
+	}
+
+	let singularityStartupError: string | undefined;
+	if (singularityExtensionFailures.length > 0) {
+		const lines = [
+			`Singularity extensions failed to load (${singularityExtensionFailures.length}/${singularityExtensionCandidates.length}).`,
+			"omp will NOT be started. Fix the extensions and restart oms.",
+			"",
+			"Failures:",
+			...singularityExtensionFailures.map(f => `  - ${path.basename(f.extensionPath)}: ${f.reason}`),
+			"",
+			"See system pane for full paths.",
+		];
+		singularityStartupError = lines.join("\n");
+		opts.registry.pushEvent(opts.systemAgentId, {
+			type: "log",
+			ts: Date.now(),
+			level: "error",
+			message: `Refusing to start singularity: ${singularityExtensionFailures.length} extension(s) failed to load.`,
+			data: {
+				failures: singularityExtensionFailures,
+				candidates: singularityExtensionCandidates,
+			},
+		});
 	}
 
 	opts.poller.on("error", err => {
@@ -337,6 +366,7 @@ export async function runTuiMode(opts: {
 			TASKS_ACTOR: "oms-singularity",
 		},
 		onDirty: () => app.requestRedraw(),
+		startupError: singularityStartupError,
 	});
 
 	const tasksPane = new TasksPane({

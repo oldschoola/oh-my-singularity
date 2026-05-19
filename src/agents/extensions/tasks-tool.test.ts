@@ -272,4 +272,38 @@ describe("tasks tool extension", () => {
 
 		expect(lines.join("\n")).toContain("S:small");
 	});
+	test("renderResult tolerates undefined width without crashing native u32 conversion", async () => {
+		const tool = await registerTasksTool({ agentType: "worker", allowedActions: ["list"] });
+		if (!tool.renderResult) throw new Error("tasks tool renderResult was not registered");
+
+		const component = tool.renderResult(
+			{
+				content: [{ type: "text", text: "tasks list: ok" }],
+				details: [
+					{
+						id: "task-12",
+						title: "Undefined width guard",
+						status: "open",
+						issue_type: "task",
+						priority: 0,
+					},
+				],
+			},
+			{ expanded: false, isPartial: false },
+			theme,
+			{ action: "list" },
+		);
+
+		// Older omp render layers can pass undefined/NaN here; the native
+		// truncateToWidth/sliceWithWidth bindings reject it with
+		// "napi value undefined into rust type u32". Guard at the render entry.
+		const undefinedLines = component.render(undefined as unknown as number);
+		expect(undefinedLines.length).toBeGreaterThan(0);
+		expect(undefinedLines.join("\n")).toContain("task-12");
+
+		const nanLines = component.render(Number.NaN);
+		expect(nanLines.length).toBeGreaterThan(0);
+		expect(nanLines.join("\n")).toContain("task-12");
+	});
+
 });

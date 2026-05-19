@@ -6,7 +6,7 @@
  * enforce task permissions via tool availability.
  */
 
-import { Ellipsis, truncateToWidth } from "@oh-my-pi/pi-natives";
+import { Ellipsis, truncateToWidth } from "./native-text";
 import type { TaskComment, TaskIssue } from "../../tasks/types";
 import { sanitizeRenderableText, wrapLine } from "../../tui/components/text-formatter";
 import {
@@ -19,12 +19,11 @@ import {
 	TASK_SINGLE_ACTIONS,
 } from "../../tui/components/tool-renderer";
 import { ipcError, requireSockPath, sendIpc } from "./ipc-client";
-import { createToolRenderers } from "./tool-renderers";
+import { createToolRenderers, normalizeWidth } from "./tool-renderers";
 import type { ExtensionAPI, ToolRenderResultOptions, ToolResultWithError, ToolTheme, UnknownRecord } from "./types";
 
 const ELLIPSIS_UNICODE = Ellipsis.Unicode;
 const NO_PADDING = false;
-const TAB_WIDTH = 2;
 
 type TasksExtensionOptions = {
 	agentType?: string;
@@ -198,9 +197,13 @@ export function makeTasksExtension(opts: TasksExtensionOptions) {
 				const fallback = tasksRenderers.renderResult(result, options, theme, args);
 				return {
 					render(width: number): string[] {
-						const structuredLines = formatTasksStructuredRenderLines(result, args, width, options, theme);
+						// width can arrive as undefined/NaN from older omp tool renderers; the
+						// downstream native calls (truncateToWidth/sliceWithWidth) reject anything
+						// other than a finite number with "napi value undefined into rust type u32".
+						const safeWidth = normalizeWidth(width);
+						const structuredLines = formatTasksStructuredRenderLines(result, args, safeWidth, options, theme);
 						if (structuredLines && structuredLines.length > 0) return structuredLines;
-						return fallback.render(width);
+						return fallback.render(safeWidth);
 					},
 				};
 			},
@@ -328,7 +331,7 @@ function formatTasksStructuredRenderLines(
 	if (!options.expanded && structured.truncated) {
 		lines.push(`  ${theme.fg("dim", "(Ctrl+O for more)")}`);
 	}
-	return lines.map(line => truncateToWidth(line, width, ELLIPSIS_UNICODE, NO_PADDING, TAB_WIDTH));
+	return lines.map(line => truncateToWidth(line, width, ELLIPSIS_UNICODE, NO_PADDING));
 }
 function formatTasksActionContextHint(action: string, args: UnknownRecord | undefined): string {
 	const rec = toRecord(args, {});
@@ -519,13 +522,7 @@ function formatMultilinePreview(text: string, width: number, maxLines: number): 
 	}
 	const lines = normalized.slice(0, maxLines);
 	const tail = lines[maxLines - 1] ?? "";
-	lines[maxLines - 1] = truncateToWidth(
-		`${tail}…`,
-		Math.max(1, width),
-		ELLIPSIS_UNICODE,
-		NO_PADDING,
-		TAB_WIDTH,
-	);
+	lines[maxLines - 1] = truncateToWidth(`${tail}…`, Math.max(1, width), ELLIPSIS_UNICODE, NO_PADDING);
 	return {
 		lines,
 		truncated: true,
@@ -616,7 +613,7 @@ function makeIndentedRow(width: number, text: string, scope: string, theme: Tool
 	return `  ${theme.fg(scope, padInline(text, contentWidth))}`;
 }
 function padInline(text: string, width: number): string {
-	const clipped = truncateToWidth(text, width, ELLIPSIS_UNICODE, NO_PADDING, TAB_WIDTH);
+	const clipped = truncateToWidth(text, width, ELLIPSIS_UNICODE, NO_PADDING);
 	if (clipped.length >= width) return clipped;
 	return `${clipped}${" ".repeat(width - clipped.length)}`;
 }
