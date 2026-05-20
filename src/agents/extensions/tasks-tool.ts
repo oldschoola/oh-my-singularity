@@ -6,7 +6,6 @@
  * enforce task permissions via tool availability.
  */
 
-import { Ellipsis, truncateToWidth } from "./native-text";
 import type { TaskComment, TaskIssue } from "../../tasks/types";
 import { sanitizeRenderableText, wrapLine } from "../../tui/components/text-formatter";
 import {
@@ -19,6 +18,7 @@ import {
 	TASK_SINGLE_ACTIONS,
 } from "../../tui/components/tool-renderer";
 import { ipcError, requireSockPath, sendIpc } from "./ipc-client";
+import { Ellipsis, truncateToWidth } from "./native-text";
 import { createToolRenderers, normalizeWidth } from "./tool-renderers";
 import type { ExtensionAPI, ToolRenderResultOptions, ToolResultWithError, ToolTheme, UnknownRecord } from "./types";
 

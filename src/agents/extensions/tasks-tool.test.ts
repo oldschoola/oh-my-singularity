@@ -305,5 +305,4 @@ describe("tasks tool extension", () => {
 		expect(nanLines.length).toBeGreaterThan(0);
 		expect(nanLines.join("\n")).toContain("task-12");
 	});
-
 });

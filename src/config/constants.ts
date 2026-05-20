@@ -97,18 +97,18 @@ export const SINGULARITY_EXTENSION_FILENAMES = [
 // --- Default tool allowlists (module-private, consumed via AGENT_CONFIGS entries) ---
 
 const WORKER_TOOLS =
-	"bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,ast_edit,debug,calc,github,inspect_image,search_tool_bm25";
+	"bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,ast_edit,debug,calc,github,inspect_image,search_tool_bm25,recall,reflect,retain";
 
 const FINISHER_TOOLS =
-	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,start_tasks,ast_grep,inspect_image,github";
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,start_tasks,ast_grep,inspect_image,github,recall,reflect,retain";
 
 const MERGER_TOOLS = "bash,read,grep,find,irc";
 
 const STEERING_TOOLS =
-	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,inspect_image,github";
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,inspect_image,github,recall,reflect,retain";
 
 const ISSUER_TOOLS =
-	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,inspect_image,github";
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,irc,job,ast_grep,inspect_image,github,recall,reflect,retain";
 
 // --- Thinking levels ---
 

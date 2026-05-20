@@ -262,7 +262,8 @@ export class OmsRpcClient {
 	 * agent_start is detected, false on timeout or rpc_exit.
 	 */
 	waitForAutoLoopContinuation(maxWaitMs?: number): Promise<boolean> {
-		const ms = maxWaitMs ?? (this.opts as unknown as { autoLoopContinuationMs?: number }).autoLoopContinuationMs ?? 30_000;
+		const ms =
+			maxWaitMs ?? (this.opts as unknown as { autoLoopContinuationMs?: number }).autoLoopContinuationMs ?? 30_000;
 		return new Promise(resolve => {
 			let settled = false;
 			const unsubscribe = this.onEvent(event => {
@@ -280,7 +281,7 @@ export class OmsRpcClient {
 				}
 			});
 
-			const timer = setTimeout(() => {
+			const _timer = setTimeout(() => {
 				if (settled) return;
 				settled = true;
 				unsubscribe();
@@ -315,6 +316,44 @@ export class OmsRpcClient {
 
 	async setThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): Promise<void> {
 		await this.send({ type: "set_thinking_level", level });
+	}
+
+	async setSessionName(name: string): Promise<void> {
+		await this.send({ type: "set_session_name", name });
+	}
+
+	async setAutoCompaction(enabled: boolean): Promise<void> {
+		await this.send({ type: "set_auto_compaction", enabled });
+	}
+
+	async setAutoRetry(enabled: boolean): Promise<void> {
+		await this.send({ type: "set_auto_retry", enabled });
+	}
+
+	/**
+	 * Trigger an explicit compaction. Use when crossing a context-usage
+	 * threshold or before a long-running tool burst that would otherwise
+	 * push the session into context_overflow territory.
+	 */
+	async compact(opts?: { customInstructions?: string }): Promise<{ savedPath?: string } | null> {
+		const command: Record<string, unknown> = { type: "compact" };
+		if (opts?.customInstructions !== undefined) command.customInstructions = opts.customInstructions;
+		const data = await this.send(command);
+		if (data && typeof data === "object") return data as { savedPath?: string };
+		return null;
+	}
+
+	/**
+	 * Generate a handoff document via the model and start a fresh session
+	 * with that document injected as context. Returns the saved path of the
+	 * generated handoff doc when omp persisted one.
+	 */
+	async handoff(opts?: { customInstructions?: string }): Promise<{ savedPath?: string } | null> {
+		const command: Record<string, unknown> = { type: "handoff" };
+		if (opts?.customInstructions !== undefined) command.customInstructions = opts.customInstructions;
+		const data = await this.send(command);
+		if (data && typeof data === "object") return data as { savedPath?: string };
+		return null;
 	}
 
 	async getLastAssistantText(): Promise<string | null> {

@@ -932,7 +932,10 @@ export function renderToolBlockLines(rawBlock: ToolBlock, width: number): string
 			if (allWrapped.length > maxLines) {
 				pushTextLine(`${FG.dim}… ${allWrapped.length - maxLines} more lines${RESET_FG}`);
 			}
-		} else {
+		} else if (block.state !== "pending") {
+			// Terminal state (success/error) with empty output: surface that explicitly.
+			// Pending blocks intentionally render no body row — the header already
+			// shows "tool running"; an empty "(no output)" stub during streaming is noise.
 			const fallback = block.state === "error" ? "(error; no output)" : "(no output)";
 			const textColor = block.state === "error" ? FG.error : FG.dim;
 			pushTextLine(`${textColor}${fallback}${RESET_FG}`);

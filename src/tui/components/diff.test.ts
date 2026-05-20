@@ -44,8 +44,8 @@ describe("renderUnifiedDiff", () => {
 
 	test("colors line gutters with the expected ANSI sequences", () => {
 		const { lines } = renderUnifiedDiff({ oldText: "a\n", newText: "a\nB\n" });
-		// We expect at least one line carrying FG.added (green) ANSI.
-		const hasGreen = lines.some(l => l.includes("\x1b[38;2;137;221;129m"));
+		// We expect at least one line carrying FG.added (#00ff88 bright green) ANSI.
+		const hasGreen = lines.some(l => l.includes("\x1b[38;2;0;255;136m"));
 		const hasHunk = lines.some(l => l.includes("\x1b[38;2;105;180;255m"));
 		expect(hasGreen).toBe(true);
 		expect(hasHunk).toBe(true);

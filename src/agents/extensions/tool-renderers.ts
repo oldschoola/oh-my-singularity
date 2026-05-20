@@ -1,5 +1,5 @@
-import { Ellipsis, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./native-text";
 import { sanitizeRenderableText } from "../../tui/components/text-formatter";
+import { Ellipsis, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./native-text";
 import type {
 	ToolParams,
 	ToolRenderCallOptions,
@@ -80,12 +80,7 @@ export function renderToolCall(
 
 			const argsPreview = visibleArgs.join(separator);
 			const previewText = argsPreview || extractSummaryLine(options?.result);
-			const preview = truncateToWidth(
-				normalizeText(previewText),
-				MAX_ARG_PREVIEW,
-				ELLIPSIS_UNICODE,
-				NO_PADDING,
-			);
+			const preview = truncateToWidth(normalizeText(previewText), MAX_ARG_PREVIEW, ELLIPSIS_UNICODE, NO_PADDING);
 			const summaryScope = !argsPreview && options?.result?.isError === true ? "error" : "muted";
 			const suffix = preview ? `${separator}${theme.fg(summaryScope, preview)}` : "";
 			return [truncateToWidth(`${header}${suffix}`, renderWidth, ELLIPSIS_UNICODE, NO_PADDING)];
@@ -110,8 +105,7 @@ export function renderToolResult(
 	const maxBody = options.expanded ? EXPANDED_LINES : COLLAPSED_LINES;
 	const visibleBody = allLines.slice(0, maxBody);
 	const hasMore = allLines.length > maxBody;
-	const singleShortLine =
-		allLines.length <= 1 && visibleWidth((allLines[0] ?? "").trim()) <= MAX_ARG_PREVIEW;
+	const singleShortLine = allLines.length <= 1 && visibleWidth((allLines[0] ?? "").trim()) <= MAX_ARG_PREVIEW;
 
 	return {
 		render(width: number): string[] {

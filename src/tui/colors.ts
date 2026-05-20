@@ -6,15 +6,15 @@ import { getAgentSpawnConfig } from "../config/constants";
 
 // Foreground colors
 export const FG = {
-	accent: "\x1b[38;2;137;210;129m", // #89d281 green
+	accent: "\x1b[38;2;0;255;136m", // #00ff88 bright green (omp titanium readoutGreen)
 	border: "\x1b[38;2;23;143;185m", // #178fb9 blue
-	success: "\x1b[38;2;137;210;129m", // #89d281 green
+	success: "\x1b[38;2;0;255;136m", // #00ff88 bright green (omp titanium readoutGreen)
 	error: "\x1b[38;2;252;58;75m", // #fc3a4b red
 	warning: "\x1b[38;2;228;192;15m", // #e4c00f yellow
 	dim: "\x1b[38;2;95;102;115m", // #5f6673
 	muted: "\x1b[38;2;119;125;136m", // #777d88
 	text: "\x1b[38;2;220;220;220m", // #dcdcdc — high-contrast body copy
-	added: "\x1b[38;2;137;221;129m", // #89dd81 green (diff +)
+	added: "\x1b[38;2;0;255;136m", // #00ff88 bright green (diff +)
 	removed: "\x1b[38;2;252;58;75m", // #fc3a4b red (diff −)
 	hunk: "\x1b[38;2;105;180;255m", // #69b4ff cyan/blue (diff @@ header)
 } as const;
@@ -65,14 +65,14 @@ export const LIFECYCLE_FG: Record<string, string> = {
 	spawning: "\x1b[38;2;184;184;0m", // #B8B800  dim yellow
 	running: "\x1b[38;2;91;155;213m", // #5B9BD5  blue
 	working: "\x1b[38;2;91;155;213m", // #5B9BD5  blue
-	done: "\x1b[38;2;137;210;129m", // #89D281  green
+	done: "\x1b[38;2;0;255;136m", // #00ff88  bright green
 	failed: "\x1b[38;2;252;58;75m", // #FC3A4B  red
 	aborted: "\x1b[38;2;252;58;75m", // #FC3A4B  red
 	dead: "\x1b[38;2;252;58;75m", // #FC3A4B  red
 	stuck: "\x1b[38;2;255;140;0m", // #FF8C00  orange
 	stopped: "\x1b[38;2;119;125;136m", // #777D88  gray
 	started: "\x1b[38;2;184;184;0m", // #B8B800  dim yellow (alias of spawning)
-	finished: "\x1b[38;2;137;210;129m", // #89D281  green (alias of done)
+	finished: "\x1b[38;2;0;255;136m", // #00ff88  bright green (alias of done)
 	paused: "\x1b[38;2;255;140;0m", // #FF8C00  orange (alias of stuck)
 	resumed: "\x1b[38;2;91;155;213m", // #5B9BD5  blue (alias of running)
 	deferred: "\x1b[38;2;255;140;0m", // #FF8C00  orange

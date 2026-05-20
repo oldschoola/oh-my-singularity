@@ -55,12 +55,14 @@ export function formatIssueScope(scope: unknown): string {
 	const normalized = text.toLowerCase();
 	switch (normalized) {
 		case "tiny":
-		case "small":
 			return `${FG.success}${text}${RESET}`;
+		case "small":
+			// success-dim: muted greenish — uses dim to keep it less prominent than tiny.
+			return `${FG.dim}${text}${RESET}`;
 		case "medium":
-			return `${FG.accent}${text}${RESET}`;
-		case "large":
 			return `${FG.warning}${text}${RESET}`;
+		case "large":
+			return `${BOLD}${FG.warning}${text}${RESET}`;
 		case "xlarge":
 			return `${BOLD}${FG.error}${text}${RESET}`;
 		default:

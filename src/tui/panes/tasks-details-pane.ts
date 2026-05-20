@@ -209,9 +209,10 @@ export class TasksDetailsPane {
 					`agent usage: ${usage.agentCount}  ↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)}  total:${formatTokens(usage.totalTokens)}`,
 				);
 				if (usage.cacheRead > 0 || usage.cacheWrite > 0) {
-					lines.push(`cache: R${formatTokens(usage.cacheRead)} W${formatTokens(usage.cacheWrite)}`);
+					const cacheValue = `R${formatTokens(usage.cacheRead)} W${formatTokens(usage.cacheWrite)}`;
+					lines.push(`${formatMetadataLabel("cache:")} ${FG.text}${cacheValue}${RESET}`);
 				}
-				lines.push(`cost: ${formatUsd(usage.cost)}`);
+				lines.push(`${formatMetadataLabel("cost:")} ${BOLD}${FG.warning}${formatUsd(usage.cost)}${RESET}`);
 			}
 			const agentLines = buildAgentBreakdownLines(liveAgents, persistedAgents);
 			if (agentLines.length > 0) {
@@ -399,7 +400,27 @@ function formatSectionHeader(value: string): string {
 }
 
 function formatMetadataLabel(label: string): string {
-	return `${FG.dim}${label}${RESET}`;
+	return `${metadataLabelColor(label)}${label}${RESET}`;
+}
+
+function metadataLabelColor(label: string): string {
+	// Label here includes its trailing colon (e.g. "status:"); normalize before lookup.
+	const key = label.replace(/:\s*$/, "").trim().toLowerCase();
+	switch (key) {
+		case "prio":
+		case "priority":
+			return FG.accent;
+		case "scope":
+		case "labels":
+		case "cache":
+			return FG.border;
+		case "assignee":
+		case "cost":
+			return FG.warning;
+		// status: and references: fall through to the muted default below intentionally.
+		default:
+			return FG.muted;
+	}
 }
 
 function taskIssueSnapshotKey(issue: TaskIssue): string {
@@ -488,7 +509,12 @@ function formatPersistedAgentCostBreakdown(agent: PersistedAgentSnapshot): strin
 	const runtimeMs = Math.max(0, agent.lastActivity - agent.spawnedAt);
 	return (
 		`${agent.agentType.padEnd(10)} |${centerPad(String(agent.status), 8)}|` +
-		` ↓${tk(usage.input)} ↑${tk(usage.output)} R${tk(usage.cacheRead)} W${tk(usage.cacheWrite)} T${tk(total)} ${formatUsd(usage.cost)}` +
+		` ${colorMarker("↓", FG.muted)}${tk(usage.input)}` +
+		` ${colorMarker("↑", FG.accent)}${tk(usage.output)}` +
+		` ${colorMarker("R", FG.border)}${tk(usage.cacheRead)}` +
+		` ${colorMarker("W", FG.border)}${tk(usage.cacheWrite)}` +
+		` ${colorMarker("T", FG.text)}${tk(total)}` +
+		` ${FG.warning}${formatUsd(usage.cost)}${RESET}` +
 		` T${formatCompactDuration(runtimeMs)}`
 	);
 }
@@ -575,7 +601,12 @@ function formatAgentCostBreakdown(agent: AgentInfo): string {
 	const tk = (n: number) => formatTokens(n).padStart(4);
 	let line =
 		`${typeLabel.padEnd(10)} |${centerPad(String(agent.status), 8)}|` +
-		` ↓${tk(usage.input)} ↑${tk(usage.output)} R${tk(usage.cacheRead)} W${tk(usage.cacheWrite)} T${tk(total)} ${formatUsd(usage.cost)}`;
+		` ${colorMarker("↓", FG.muted)}${tk(usage.input)}` +
+		` ${colorMarker("↑", FG.accent)}${tk(usage.output)}` +
+		` ${colorMarker("R", FG.border)}${tk(usage.cacheRead)}` +
+		` ${colorMarker("W", FG.border)}${tk(usage.cacheWrite)}` +
+		` ${colorMarker("T", FG.text)}${tk(total)}` +
+		` ${FG.warning}${formatUsd(usage.cost)}${RESET}`;
 
 	const ctxWindow = agent.contextWindow ?? 0;
 	const ctxTokens = agent.contextTokens ?? 0;
@@ -592,7 +623,37 @@ function formatAgentCostBreakdown(agent: AgentInfo): string {
 
 	const compactions = agent.compactionCount ?? 0;
 	if (compactions > 0) line += ` C:${compactions}`;
+
+	const badge = formatSubagentBadge(agent);
+	if (badge) line += ` ${badge}`;
 	return line;
+}
+
+function colorMarker(text: string, color: string): string {
+	return `${color}${text}${RESET}`;
+}
+
+/**
+ * `+N` (or `+N (M live)`) badge counting `task` tool fan-outs from this
+ * agent's RPC event stream. Returns empty string when the agent has not
+ * dispatched any subagents — single-agent rows stay visually unchanged.
+ */
+function formatSubagentBadge(agent: AgentInfo): string {
+	let started = 0;
+	let ended = 0;
+	for (const event of agent.events) {
+		if (event.type !== "rpc") continue;
+		const data = event.data as { type?: unknown; toolName?: unknown } | undefined;
+		const innerType = typeof data?.type === "string" ? data.type : "";
+		const toolName = typeof data?.toolName === "string" ? data.toolName : "";
+		if (toolName !== "task") continue;
+		if (innerType === "tool_execution_start") started += 1;
+		else if (innerType === "tool_execution_end") ended += 1;
+	}
+	if (started <= 0) return "";
+	const live = Math.max(0, started - ended);
+	const label = live > 0 ? `+${started} (${live} live)` : `+${started}`;
+	return `${FG.accent}${label}${RESET}`;
 }
 
 function formatCompactDuration(ms: number): string {

@@ -168,7 +168,10 @@ describe("rpc renderer tool and wake rendering", () => {
 
 		expect(output).toContain("tasks");
 		expect(output).toContain("create");
-		expect(output).toContain("(no output)");
+		// Pending tool blocks now omit the "(no output)" body row entirely.
+		// The header alone signals "tool running"; emitting an empty stub during
+		// streaming was visual noise that the user explicitly removed.
+		expect(output).not.toContain("(no output)");
 		expect(output).not.toContain("description:");
 		expect(output).not.toContain("labels: enhancement, ui");
 	});

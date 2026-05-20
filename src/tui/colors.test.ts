@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BG, clipPadAnsiBg, RESET, RESET_FG, visibleWidth } from "./colors";
+import { BG, clipPadAnsiBg, FG, LIFECYCLE_FG, RESET, RESET_FG, visibleWidth } from "./colors";
 
 const ESC = "\x1b";
 
@@ -58,5 +58,20 @@ describe("clipPadAnsiBg", () => {
 		const tail = out.slice(lastPaneIdx + BG.pane.length);
 		expect(tail.replace(RESET, "")).toBe("      "); // 10 - 4 = 6 pad spaces
 		expect(out.endsWith(RESET)).toBe(true);
+	});
+});
+
+describe("titanium-matching green palette", () => {
+	const BRIGHT_GREEN = "\x1b[38;2;0;255;136m"; // #00ff88
+
+	test("FG.success / FG.accent / FG.added use the omp readoutGreen", () => {
+		expect(FG.success).toBe(BRIGHT_GREEN);
+		expect(FG.accent).toBe(BRIGHT_GREEN);
+		expect(FG.added).toBe(BRIGHT_GREEN);
+	});
+
+	test("LIFECYCLE_FG.done and LIFECYCLE_FG.finished track the bright green", () => {
+		expect(LIFECYCLE_FG.done).toBe(BRIGHT_GREEN);
+		expect(LIFECYCLE_FG.finished).toBe(BRIGHT_GREEN);
 	});
 });

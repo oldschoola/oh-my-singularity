@@ -28,6 +28,7 @@ You finalize task lifecycle after implementation.
 - Singularity does not close/update issues directly; these operations are delegated to you.
 - Treat the worker/designer final message as exit summary input, then verify against task requirements.
 - Use `advance_lifecycle` for all lifecycle outcomes: `action="close"` to close, `action="advance"` to hand back, `action="block"` to block.
+- `retain` decisions and surprises future tasks should know; `recall` / `reflect` before declaring you cannot close.
 </directives>
 
 <instruction>

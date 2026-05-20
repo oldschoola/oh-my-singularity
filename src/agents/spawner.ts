@@ -499,6 +499,22 @@ export class AgentSpawner {
 
 			rpc.start();
 
+			// Best-effort RPC configuration. Failures must not block the spawn —
+			// every call is logged and swallowed. Each enables a feature that improves
+			// orchestration latency or session UX but is not required for correctness.
+			const initialSessionName = taskId ? `${configKey}:${taskId}` : `${configKey}:${spawnedAt}`;
+			await Promise.allSettled([
+				rpc.setSessionName(initialSessionName).catch(err => {
+					logger.debug("agents/spawner.ts: set_session_name failed (non-fatal)", { agentId, err });
+				}),
+				rpc.setAutoCompaction(true).catch(err => {
+					logger.debug("agents/spawner.ts: set_auto_compaction failed (non-fatal)", { agentId, err });
+				}),
+				rpc.setAutoRetry(true).catch(err => {
+					logger.debug("agents/spawner.ts: set_auto_retry failed (non-fatal)", { agentId, err });
+				}),
+			]);
+
 			// Build and send prompt
 			let promptText: string | null = null;
 			if (normalizedResumeSessionId) {
@@ -511,6 +527,13 @@ export class AgentSpawner {
 				await rpc.prompt(promptText);
 			} else if (taskId != null) {
 				const task = await this.tasksClient.show(taskId);
+				const titleText = typeof task.title === "string" ? task.title.trim() : "";
+				if (titleText) {
+					const refinedName = `${configKey}:${taskId} ${titleText}`.slice(0, 120);
+					await rpc.setSessionName(refinedName).catch(err => {
+						logger.debug("agents/spawner.ts: set_session_name (refined) failed (non-fatal)", { agentId, err });
+					});
+				}
 				let extra: string;
 				if (opts?.buildPromptExtra) {
 					extra = await opts.buildPromptExtra(task as unknown as Record<string, unknown>);

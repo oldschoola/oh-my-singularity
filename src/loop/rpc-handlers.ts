@@ -83,6 +83,14 @@ export class RpcHandlerManager {
 
 	private readonly rpcHandlersAttached = new Set<string>();
 	private readonly retryAttemptsByTypeAndTask = new Map<string, number>();
+	/**
+	 * Fraction of `contextWindow` at which OMS proactively invokes `compact`
+	 * on a worker session, in addition to omp's own auto-compaction. Kept
+	 * conservative (0.80) — bump to 0.92 if telemetry shows duplicate
+	 * compactions triggered by both this code and omp's internal threshold.
+	 */
+	private static readonly COMPACT_TRIGGER_RATIO = 0.8;
+	private readonly compactionInFlight = new Set<string>();
 
 	private retryKey(agentType: string, taskId: string): string {
 		return `${agentType}:${taskId}`;
@@ -209,7 +217,14 @@ export class RpcHandlerManager {
 			// Track successful compaction events
 			if (isSuccessfulCompaction(event) && current) {
 				current.compactionCount = (current.compactionCount ?? 0) + 1;
+				this.compactionInFlight.delete(agent.id);
 			}
+
+			// Proactive threshold-based compaction. Fires once per agent when
+			// estimated context usage crosses COMPACT_TRIGGER_RATIO. The in-flight
+			// flag prevents thrashing if get_state / message_end fire before
+			// auto_compaction_end resets it.
+			this.maybeTriggerCompaction(rpc, agent.id);
 
 			const sessionId = rpc.getSessionId();
 			if (current && typeof sessionId === "string" && sessionId.trim()) {
@@ -270,6 +285,62 @@ export class RpcHandlerManager {
 			});
 	}
 
+	private maybeTriggerCompaction(rpc: OmsRpcClient, agentId: string): void {
+		if (this.compactionInFlight.has(agentId)) return;
+		const agent = this.registry.get(agentId);
+		if (!agent) return;
+		const ctxWindow = agent.contextWindow ?? 0;
+		const ctxTokens = agent.contextTokens ?? 0;
+		if (ctxWindow <= 0 || ctxTokens <= 0) return;
+		if (ctxTokens / ctxWindow < RpcHandlerManager.COMPACT_TRIGGER_RATIO) return;
+
+		this.compactionInFlight.add(agentId);
+		this.loopLog(
+			`Threshold compaction: agent ${agentId} ctx ${ctxTokens}/${ctxWindow} >= ${RpcHandlerManager.COMPACT_TRIGGER_RATIO}`,
+			"info",
+			{ agentId, ctxTokens, ctxWindow },
+		);
+		void rpc.compact().catch(err => {
+			this.compactionInFlight.delete(agentId);
+			this.loopLog("Threshold compaction RPC call failed (non-fatal)", "warn", {
+				agentId,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		});
+	}
+
+	/**
+	 * Attempt to enrich the finisher kickoff context by triggering the
+	 * worker's `handoff` RPC. omp generates a curated session summary,
+	 * persists it, and we forward it as the finisher's promptExtra. Any
+	 * failure (no handoff capability, file unreadable, empty text) falls
+	 * back to the caller-provided default text.
+	 */
+	private async tryHandoffForFinisher(agent: AgentInfo, fallbackText: string): Promise<string> {
+		const rpc = agent.rpc;
+		if (!(rpc instanceof OmsRpcClient)) return fallbackText;
+		try {
+			const result = await rpc.handoff({
+				customInstructions:
+					"Summarize this implementation session for a downstream finisher agent: what was changed, what was verified, what remains risky, and any follow-ups the finisher needs to evaluate before closing the task.",
+			});
+			const savedPath = result?.savedPath;
+			if (typeof savedPath !== "string" || !savedPath.trim()) return fallbackText;
+			const text = await Bun.file(savedPath)
+				.text()
+				.catch(() => "");
+			const trimmed = text.trim();
+			return trimmed ? trimmed : fallbackText;
+		} catch (err) {
+			this.loopLog("Worker handoff RPC failed; falling back to last assistant text", "debug", {
+				agentId: agent.id,
+				taskId: agent.taskId ?? null,
+				error: err instanceof Error ? err.message : String(err),
+			});
+			return fallbackText;
+		}
+	}
+
 	private async onAgentEnd(agent: AgentInfo): Promise<void> {
 		if (!this.isRunning()) return;
 		if (this.isPaused()) return;
@@ -313,11 +384,19 @@ export class RpcHandlerManager {
 						return;
 					}
 				}
+				// Best-effort handoff enrichment: ask the worker to summarize its work
+				// into a curated handoff document so the finisher gets richer context
+				// than the raw last-assistant-text. Must run while the RPC is alive
+				// (before finishAgent stops it). Failures fall back to workerOutput.
+				let finisherKickoff = workerOutput;
+				if (advance) {
+					finisherKickoff = await this.tryHandoffForFinisher(agent, workerOutput);
+				}
 				await this.finishAgent(agent, "done");
 				if (advance) {
 					this.clearRetryAttempts("worker", taskId);
 					try {
-						const finisher = await this.spawnFinisherAfterStoppingSteering(taskId, workerOutput);
+						const finisher = await this.spawnFinisherAfterStoppingSteering(taskId, finisherKickoff);
 						this.attachRpcHandlers(finisher);
 						this.logAgentStart(agent.id, finisher, workerOutput);
 						this.loopLog(`Worker lifecycle advanced ${taskId} to finisher`, "info", {

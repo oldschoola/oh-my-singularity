@@ -15,6 +15,7 @@ function toolSet(agent: string): Set<string> {
 
 describe("AGENT_CONFIGS tool allowlists", () => {
 	const COORDINATION_TOOLS = ["task", "irc", "job", "todo_write"] as const;
+	const HINDSIGHT_TOOLS = ["recall", "reflect", "retain"] as const;
 
 	test("worker can perform code edits and structural search", () => {
 		const tools = toolSet("worker");
@@ -31,6 +32,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		for (const tool of COORDINATION_TOOLS) {
 			expect(tools.has(tool)).toBe(true);
 		}
+		for (const tool of HINDSIGHT_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
 	});
 
 	test("issuer is read-only and never holds edit/write/ast_edit", () => {
@@ -43,6 +47,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 			expect(tools.has(tool)).toBe(true);
 		}
 		for (const tool of COORDINATION_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
+		for (const tool of HINDSIGHT_TOOLS) {
 			expect(tools.has(tool)).toBe(true);
 		}
 	});
@@ -59,6 +66,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		for (const tool of COORDINATION_TOOLS) {
 			expect(tools.has(tool)).toBe(true);
 		}
+		for (const tool of HINDSIGHT_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
 	});
 
 	test("steering is read-only with structural search", () => {
@@ -68,6 +78,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		expect(tools.has("ast_edit")).toBe(false);
 		expect(tools.has("ast_grep")).toBe(true);
 		for (const tool of COORDINATION_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
+		for (const tool of HINDSIGHT_TOOLS) {
 			expect(tools.has(tool)).toBe(true);
 		}
 	});

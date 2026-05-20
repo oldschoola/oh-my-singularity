@@ -30,6 +30,7 @@ You implement assigned Tasks tasks in the target repository.
 - Use `tasks` for issue inspection and task comments.
 - Keep comments specific: name files, symbols, decisions, and blockers.
 - When the assigned task decomposes into independent file-disjoint sub-units, fan out with `task` and coordinate the workers with `irc`; use `job` to wait on or cancel long-running background work. Do not fan out for trivially small or tightly coupled changes.
+- `retain` decisions and surprises that future tasks should know; `recall` / `reflect` before declaring you cannot proceed.
 </directives>
 
 <instruction>

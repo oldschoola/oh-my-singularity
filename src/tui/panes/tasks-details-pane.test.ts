@@ -48,6 +48,12 @@ function createTerminalStub() {
 	};
 }
 
+/** Strip CSI/SGR ANSI escape sequences for substring assertions that should
+ * be insensitive to per-marker coloring. */
+function stripAnsi(text: string): string {
+	return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 describe("TasksDetailsPane", () => {
 	test("refreshes selected issue details when same selection receives new comments", async () => {
 		let selectedIssue = makeIssue();
@@ -212,14 +218,15 @@ describe("TasksDetailsPane", () => {
 		expect(rendered).toContain("── Agents ──");
 		expect(rendered).toContain("worker");
 		expect(rendered).toContain("|  done  |");
-		expect(rendered).toContain("↓  12");
-		expect(rendered).toContain("↑  34");
-		expect(rendered).toContain("R   5");
-		expect(rendered).toContain("W   2");
-		expect(rendered).toContain("$0.321");
-		expect(rendered).toContain("C  5%");
-		expect(rendered).toContain("T65s");
-		expect(rendered).toContain("C:2");
+		const plain = stripAnsi(rendered);
+		expect(plain).toContain("↓  12");
+		expect(plain).toContain("↑  34");
+		expect(plain).toContain("R   5");
+		expect(plain).toContain("W   2");
+		expect(plain).toContain("$0.321");
+		expect(plain).toContain("C  5%");
+		expect(plain).toContain("T65s");
+		expect(plain).toContain("C:2");
 		expect(rendered).toContain("task duration: 1m 5s");
 	});
 
@@ -277,11 +284,12 @@ describe("TasksDetailsPane", () => {
 		expect(rendered).toContain("── Agents ──");
 		expect(rendered).toContain("worker");
 		expect(rendered).toContain("|  done  |");
-		expect(rendered).toContain("↓  10");
-		expect(rendered).toContain("↑  20");
-		expect(rendered).toContain("R   4");
-		expect(rendered).toContain("W   1");
-		expect(rendered).toContain("$0.100");
+		const plain = stripAnsi(rendered);
+		expect(plain).toContain("↓  10");
+		expect(plain).toContain("↑  20");
+		expect(plain).toContain("R   4");
+		expect(plain).toContain("W   1");
+		expect(plain).toContain("$0.100");
 	});
 	test("re-fetches via show() when poller snapshot lacks comments that show() would return", async () => {
 		// Poller path returns the lightweight issue (no comment bodies); show() returns the

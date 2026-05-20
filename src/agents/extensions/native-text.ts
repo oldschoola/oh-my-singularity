@@ -31,8 +31,8 @@ import {
 	wrapTextWithAnsi as nativeWrapTextWithAnsi,
 } from "@oh-my-pi/pi-natives";
 
-export { Ellipsis } from "@oh-my-pi/pi-natives";
 export type { ExtractSegmentsResult, SliceWithWidthResult } from "@oh-my-pi/pi-natives";
+export { Ellipsis } from "@oh-my-pi/pi-natives";
 
 /** Mirror of `DEFAULT_TAB_WIDTH` in `@oh-my-pi/pi-utils` (3 columns). */
 const TAB_WIDTH = 3;
