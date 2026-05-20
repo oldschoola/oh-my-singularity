@@ -14,6 +14,8 @@ function toolSet(agent: string): Set<string> {
 }
 
 describe("AGENT_CONFIGS tool allowlists", () => {
+	const COORDINATION_TOOLS = ["task", "irc", "job", "todo_write"] as const;
+
 	test("worker can perform code edits and structural search", () => {
 		const tools = toolSet("worker");
 		// Core edit capability must be retained.
@@ -25,6 +27,10 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		}
 		// eval is intentionally excluded — workers get stuck on long-running cells.
 		expect(tools.has("eval")).toBe(false);
+		// Subagent coordination tools must be present so workers can fan out.
+		for (const tool of COORDINATION_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
 	});
 
 	test("issuer is read-only and never holds edit/write/ast_edit", () => {
@@ -34,6 +40,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		expect(tools.has("ast_edit")).toBe(false);
 		// Read-only structural tools should be available.
 		for (const tool of ["ast_grep", "inspect_image", "github"]) {
+			expect(tools.has(tool)).toBe(true);
+		}
+		for (const tool of COORDINATION_TOOLS) {
 			expect(tools.has(tool)).toBe(true);
 		}
 	});
@@ -47,6 +56,9 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		for (const tool of ["ast_grep", "inspect_image", "github"]) {
 			expect(tools.has(tool)).toBe(true);
 		}
+		for (const tool of COORDINATION_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
 	});
 
 	test("steering is read-only with structural search", () => {
@@ -55,11 +67,14 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		expect(tools.has("write")).toBe(false);
 		expect(tools.has("ast_edit")).toBe(false);
 		expect(tools.has("ast_grep")).toBe(true);
+		for (const tool of COORDINATION_TOOLS) {
+			expect(tools.has(tool)).toBe(true);
+		}
 	});
 
-	test("merger allowlist stays intentionally minimal", () => {
+	test("merger allowlist stays intentionally minimal but keeps irc for coordination", () => {
 		const tools = toolSet("merger");
-		expect([...tools].sort()).toEqual(["bash", "find", "grep", "read"]);
+		expect([...tools].sort()).toEqual(["bash", "find", "grep", "irc", "read"]);
 	});
 
 	test("designer and speedy share the worker allowlist", () => {
