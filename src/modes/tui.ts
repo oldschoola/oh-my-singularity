@@ -501,8 +501,7 @@ export async function runTuiMode(opts: {
 			logAgentId: opts.systemAgentId,
 			crashLogWriter: opts.sessionLogWriter,
 			onFinisherClosed: ({ taskId, summary, reason }) => {
-				const body = summary || reason || "(no summary)";
-				singularityPane.injectSystemNotice(`Finisher closed ${taskId}`, body);
+				tasksDetailsPane.recordFinisherClose(taskId, summary, reason);
 			},
 		});
 

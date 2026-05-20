@@ -1,8 +1,6 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Terminal } from "@xterm/headless";
 import * as xtermHeadless from "@xterm/headless";
-
-import { PtyBridge } from "../pty-bridge";
 import {
 	buildSingularityPtyEnv,
 	renderBufferLineAnsi,
@@ -346,78 +344,5 @@ describe("SingularityPane startupError", () => {
 		const lines = await renderPaneLines(pane, cols, rows);
 		// Without startupError the pane shows the "starting" placeholder, not the error.
 		expect(lines[0]?.startsWith("Singularity extensions failed")).toBe(false);
-	});
-});
-
-describe("SingularityPane injectSystemNotice", () => {
-	test("never writes to the PTY", () => {
-		const writeSpy = spyOn(PtyBridge.prototype, "write");
-		try {
-			const pane = new SingularityPane({
-				ompCli: "bun",
-				args: ["-e", "process.exit(0)"],
-				cwd: process.cwd(),
-				cols: 40,
-				rows: 8,
-			});
-
-			pane.injectSystemNotice("Finisher closed task-7", "Completed in 3.2s");
-
-			expect(writeSpy).not.toHaveBeenCalled();
-		} finally {
-			writeSpy.mockRestore();
-		}
-	});
-
-	test("renders a banner above the omp buffer once omp has produced output", async () => {
-		const cols = 60;
-		const rows = 10;
-		// Sentinel printed by the child via base64 so the literal string never
-		// appears in the spawn command — otherwise the "Starting: bun -e …"
-		// placeholder would falsely match.
-		const sentinel = "OMP_READY";
-		const sentinelB64 = Buffer.from(sentinel).toString("base64");
-		const script = [
-			`process.stdout.write(Buffer.from("${sentinelB64}", "base64").toString() + "\\r\\n");`,
-			"setTimeout(() => process.exit(0), 5_000);",
-		].join(" ");
-
-		const pane = new SingularityPane({
-			ompCli: "bun",
-			args: ["-e", script],
-			cwd: process.cwd(),
-			cols,
-			rows,
-		});
-
-		pane.start();
-		try {
-			// Wait for omp output so the pane's #hasOutput flips to true.
-			let lines: string[] = [];
-			let baseOmpRow = -1;
-			for (let attempt = 0; attempt < 60; attempt += 1) {
-				await Bun.sleep(50);
-				lines = await renderPaneLines(pane, cols, rows);
-				baseOmpRow = lines.findIndex(l => l.includes(sentinel));
-				if (baseOmpRow >= 0) break;
-			}
-			expect(baseOmpRow).toBeGreaterThanOrEqual(0);
-
-			// Inject a banner — must not touch the xterm buffer, only the renderer.
-			pane.injectSystemNotice("Finisher closed task-7", "Completed in 3.2s");
-			lines = await renderPaneLines(pane, cols, rows);
-
-			// Banner title is on row 0; body on row 1; omp content shifted below.
-			expect(lines[0] ?? "").toContain("Finisher closed task-7");
-			expect(lines[1] ?? "").toContain("Completed in 3.2s");
-			const ompRowAfter = lines.findIndex(l => l.includes(sentinel));
-			expect(ompRowAfter).toBeGreaterThan(baseOmpRow);
-
-			// Banner is persistent — a subsequent render still shows it.
-			const lines2 = await renderPaneLines(pane, cols, rows);
-			expect(lines2[0] ?? "").toContain("Finisher closed task-7");
-		} finally {
-			pane.stop();
-		}
 	});
 });

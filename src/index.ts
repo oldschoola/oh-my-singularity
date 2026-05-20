@@ -85,6 +85,15 @@ async function main(opts: OmsLaunchOptions): Promise<void> {
 		lastActivity: Date.now(),
 	});
 
+	// Tee every agent's RPC event stream into <sessionDir>/agents/<id>.log so
+	// stuck workers (hung tool calls, dropped stream chunks, agents idling after
+	// `eval` etc.) are diagnosable post-mortem. The system agent is also written
+	// here in addition to oms.log so pipe-mode runs (no SystemPane) still have
+	// a record.
+	registry.onEvent((agentId, event) => {
+		sessionLogWriter.appendAgentEvent(agentId, event);
+	});
+
 	const scheduler = new Scheduler({ tasksClient, registry, tasksAvailable: true });
 	const replicaManager = new ReplicaManager({ projectRoot: tasksClient.workingDir });
 	const spawner = new AgentSpawner({

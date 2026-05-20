@@ -25,7 +25,7 @@ export const BG = {
 	toolSuccess: "\x1b[48;2;22;26;31m", // #161a1f
 	toolError: "\x1b[48;2;41;29;29m", // #291d1d
 	statusLine: "\x1b[48;2;18;18;18m", // #121212
-	pane: "\x1b[48;2;0;0;0m", // #000000 — solid black for turn-rendering panes
+	pane: "\x1b[48;2;38;42;51m", // #262a33 — medium dark slate so tool blocks (BG.tool*) appear darker
 } as const;
 
 // Control sequences
@@ -275,13 +275,16 @@ export function clipAnsi(text: string, width: number): string {
  * Background-aware variant of `clipPadAnsi`: clips to `width`, replaces mid-line
  * full `RESET` (`\x1b[0m`) sequences with `RESET_FG` (`\x1b[39m`) so the painted
  * background survives nested style resets, then opens `bg` once and closes with
- * a final `RESET`. Pad cells inherit `bg` to fill the entire region uniformly.
+ * a final `RESET`. Right-side padding always reasserts `bg` so that pad cells
+ * never inherit a content-block BG (e.g. a tool block's darker fill bleeding
+ * into the surrounding pane).
  */
 export function clipPadAnsiBg(text: string, width: number, bg: string): string {
 	if (width <= 0) return "";
 	const clipped = clipAnsi(text, width);
 	const bgSafe = clipped.replace(/\x1b\[0m/g, RESET_FG);
 	const vw = visibleWidth(clipped);
-	const pad = vw < width ? " ".repeat(width - vw) : "";
-	return `${bg}${bgSafe}${pad}${RESET}`;
+	if (vw >= width) return `${bg}${bgSafe}${RESET}`;
+	const pad = " ".repeat(width - vw);
+	return `${bg}${bgSafe}${bg}${pad}${RESET}`;
 }

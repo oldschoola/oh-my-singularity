@@ -7,6 +7,7 @@ import { asRecord, logger } from "./utils";
 import { redactEvent, redactString, redactValue } from "./utils/redact";
 
 const DEFAULT_OMS_LOG_MAX_BYTES = 25 * 1024 * 1024;
+const DEFAULT_AGENT_LOG_MAX_BYTES = 25 * 1024 * 1024;
 const OMS_LOG_FLUSH_INTERVAL_MS = 100;
 const OMS_LOG_FLUSH_MAX_LINES = 50;
 
@@ -117,19 +118,25 @@ export class SessionLogWriter {
 	private readonly omsLogPath: string;
 	private readonly crashesDir: string;
 	private readonly omsLogMaxBytes: number;
+	private readonly agentLogMaxBytes: number;
+	private readonly agentsDir: string;
 
 	private omsLogSizeBytes: number | null = null;
 	private omsLogCapped = false;
+	private readonly agentLogState = new Map<string, { path: string; sizeBytes: number; capped: boolean }>();
+	private agentsDirEnsured = false;
 	private pendingLines: string[] = [];
 	private flushTimer: Timer | null = null;
 	private flushInFlight: Promise<void> | null = null;
 	private disposed = false;
 
-	constructor(opts: { sessionDir: string; omsLogMaxBytes?: number }) {
+	constructor(opts: { sessionDir: string; omsLogMaxBytes?: number; agentLogMaxBytes?: number }) {
 		this.sessionDir = opts.sessionDir;
 		this.omsLogPath = path.join(this.sessionDir, "oms.log");
 		this.crashesDir = path.join(this.sessionDir, "crashes");
+		this.agentsDir = path.join(this.sessionDir, "agents");
 		this.omsLogMaxBytes = Math.max(1024, opts.omsLogMaxBytes ?? DEFAULT_OMS_LOG_MAX_BYTES);
+		this.agentLogMaxBytes = Math.max(1024, opts.agentLogMaxBytes ?? DEFAULT_AGENT_LOG_MAX_BYTES);
 
 		try {
 			fs.mkdirSync(this.sessionDir, { recursive: true });
@@ -151,6 +158,86 @@ export class SessionLogWriter {
 			agentId,
 			event: redactEvent(event),
 		});
+	}
+
+	/**
+	 * Append a single registry event for `agentId` to the per-agent JSONL log
+	 * at `<sessionDir>/agents/<safe-id>.log`. Each line is one JSON object
+	 * `{ ts, timestamp, agentId, event }`. Capped per file at `agentLogMaxBytes`
+	 * (default 25 MiB); once capped, a single marker line is written and further
+	 * events for that agent are dropped. Best-effort: filesystem failures are
+	 * swallowed so diagnostic logging never breaks the loop.
+	 */
+	appendAgentEvent(agentId: string, event: unknown): void {
+		if (this.disposed) return;
+		if (typeof agentId !== "string" || agentId.length === 0) return;
+
+		const state = this.getAgentLogState(agentId);
+		if (!state || state.capped) return;
+
+		const rec = asRecord(event);
+		const eventTs = rec && typeof rec.ts === "number" ? rec.ts : Date.now();
+		const line = `${safeJsonStringify({
+			ts: eventTs,
+			timestamp: new Date(eventTs).toISOString(),
+			agentId,
+			event: redactEvent(event),
+		})}\n`;
+		const lineBytes = Buffer.byteLength(line);
+
+		if (state.sizeBytes + lineBytes > this.agentLogMaxBytes) {
+			state.capped = true;
+			const marker = `${safeJsonStringify({
+				ts: Date.now(),
+				timestamp: new Date().toISOString(),
+				type: "agent_log_capped",
+				message: `agent log reached ${this.agentLogMaxBytes} bytes; skipping subsequent entries`,
+			})}\n`;
+			const markerBytes = Buffer.byteLength(marker);
+			if (state.sizeBytes + markerBytes <= this.agentLogMaxBytes) {
+				try {
+					fs.appendFileSync(state.path, marker, "utf8");
+					state.sizeBytes += markerBytes;
+				} catch (err) {
+					logger.debug("session-log-writer.ts: failed to write agent_log_capped marker", { err, agentId });
+				}
+			}
+			return;
+		}
+
+		try {
+			fs.appendFileSync(state.path, line, "utf8");
+			state.sizeBytes += lineBytes;
+		} catch (err) {
+			logger.debug("session-log-writer.ts: failed to append agent event", { err, agentId });
+		}
+	}
+
+	private getAgentLogState(agentId: string): { path: string; sizeBytes: number; capped: boolean } | null {
+		const cached = this.agentLogState.get(agentId);
+		if (cached) return cached;
+
+		if (!this.agentsDirEnsured) {
+			try {
+				fs.mkdirSync(this.agentsDir, { recursive: true });
+				this.agentsDirEnsured = true;
+			} catch (err) {
+				logger.debug("session-log-writer.ts: failed to create agents/ dir", { err });
+				return null;
+			}
+		}
+
+		const fileName = `${sanitizeToken(agentId, "agent", 120)}.log`;
+		const filePath = path.join(this.agentsDir, fileName);
+		let sizeBytes = 0;
+		try {
+			sizeBytes = fs.statSync(filePath).size;
+		} catch {
+			// Fresh file — size stays 0.
+		}
+		const state = { path: filePath, sizeBytes, capped: false };
+		this.agentLogState.set(agentId, state);
+		return state;
 	}
 
 	writeCrashLog(input: CrashLogInput): string | null {

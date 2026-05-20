@@ -367,4 +367,48 @@ describe("TasksDetailsPane", () => {
 		expect(rendered).toContain("initial-comment-body");
 		expect(rendered).toContain("second-comment-body");
 	});
+
+	test("recordFinisherClose surfaces the summary in the selected task details", async () => {
+		const issue = makeIssue({ id: "task-9", title: "Wire the thing" });
+
+		const tasksClient = {
+			show: async () => ({ ...issue, comments: [] }),
+		} as unknown as TaskStoreClient;
+
+		const tasksPane = {
+			getSelectedIssueId: () => issue.id,
+			getSelectedIssue: () => issue,
+		};
+
+		const pane = new TasksDetailsPane({
+			tasksClient,
+			tasksPane: tasksPane as never,
+		});
+
+		const term = createTerminalStub();
+		const region: Region = { x: 1, y: 1, width: 100, height: 30 };
+
+		// Drive the initial fetch.
+		pane.render(term.term, region);
+		await Bun.sleep(0);
+		term.reset();
+		pane.render(term.term, region);
+		expect(term.text()).not.toContain("Finisher Summary");
+
+		// Recording a summary for the currently selected task must surface it.
+		pane.recordFinisherClose(issue.id, "merged review/foo into main", "merge-success");
+		term.reset();
+		pane.render(term.term, region);
+		const rendered = term.text();
+		expect(rendered).toContain("Finisher Summary");
+		expect(rendered).toContain("merged review/foo into main");
+
+		// A subsequent record for a different task must NOT show here.
+		pane.recordFinisherClose("task-other", "ignored", "other-reason");
+		term.reset();
+		pane.render(term.term, region);
+		const rendered2 = term.text();
+		expect(rendered2).toContain("merged review/foo into main");
+		expect(rendered2).not.toContain("ignored");
+	});
 });

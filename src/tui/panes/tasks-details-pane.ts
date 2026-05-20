@@ -66,6 +66,10 @@ export class TasksDetailsPane {
 	#lastFetchedSnapshotKey: string | null = null;
 	#selectedPersistedAgents: PersistedAgentSnapshot[] = [];
 
+	// Last finisher-close summary per task, surfaced under "── Finisher Summary ──"
+	// when that task is selected. Replaces the dismissable banner notice.
+	readonly #finisherSummaries = new Map<string, { summary: string; reason: string; closedAt: number }>();
+
 	#scrollTop = 0;
 	#lastMaxScrollTop = 0;
 
@@ -89,6 +93,24 @@ export class TasksDetailsPane {
 		this.#scrollTop = Math.max(0, Math.min(this.#lastMaxScrollTop, this.#scrollTop + dir * step));
 		this.#onDirty?.();
 		return true;
+	}
+
+	/**
+	 * Record the finisher close summary for `taskId`. The next time that task is
+	 * selected (or the currently selected task matches), the summary appears in
+	 * the details pane under a dedicated section. A repeat call overwrites the
+	 * prior entry.
+	 */
+	recordFinisherClose(taskId: string, summary: string, reason: string): void {
+		if (typeof taskId !== "string" || taskId.length === 0) return;
+		const safeSummary = typeof summary === "string" ? summary : "";
+		const safeReason = typeof reason === "string" ? reason : "";
+		this.#finisherSummaries.set(taskId, {
+			summary: safeSummary,
+			reason: safeReason,
+			closedAt: Date.now(),
+		});
+		if (this.#selectedId === taskId) this.#onDirty?.();
 	}
 
 	render(term: TerminalLike, region: Region): void {
@@ -196,6 +218,16 @@ export class TasksDetailsPane {
 				lines.push("");
 				lines.push(formatSectionHeader("── Agents ──"));
 				lines.push(...agentLines);
+			}
+			const finisher = this.#finisherSummaries.get(issue.id);
+			if (finisher) {
+				lines.push("");
+				const closedRel = renderRelativeTime(new Date(finisher.closedAt).toISOString());
+				lines.push(formatSectionHeader(`── Finisher Summary (${closedRel}) ──`));
+				const body = finisher.summary || finisher.reason || "(no summary)";
+				for (const line of renderMarkdownLines(body, width)) {
+					lines.push(line);
+				}
 			}
 			const desc = typeof issue.description === "string" ? issue.description.trim() : "";
 			if (desc) {
