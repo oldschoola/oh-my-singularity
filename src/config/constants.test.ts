@@ -20,18 +20,11 @@ describe("AGENT_CONFIGS tool allowlists", () => {
 		expect(tools.has("edit")).toBe(true);
 		expect(tools.has("write")).toBe(true);
 		// Newly broadened set.
-		for (const tool of [
-			"ast_grep",
-			"ast_edit",
-			"debug",
-			"eval",
-			"calc",
-			"github",
-			"inspect_image",
-			"search_tool_bm25",
-		]) {
+		for (const tool of ["ast_grep", "ast_edit", "debug", "calc", "github", "inspect_image", "search_tool_bm25"]) {
 			expect(tools.has(tool)).toBe(true);
 		}
+		// eval is intentionally excluded — workers get stuck on long-running cells.
+		expect(tools.has("eval")).toBe(false);
 	});
 
 	test("issuer is read-only and never holds edit/write/ast_edit", () => {

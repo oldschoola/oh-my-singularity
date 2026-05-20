@@ -97,7 +97,7 @@ export const SINGULARITY_EXTENSION_FILENAMES = [
 // --- Default tool allowlists (module-private, consumed via AGENT_CONFIGS entries) ---
 
 const WORKER_TOOLS =
-	"bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,ast_grep,ast_edit,debug,eval,calc,github,inspect_image,search_tool_bm25";
+	"bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,ast_grep,ast_edit,debug,calc,github,inspect_image,search_tool_bm25";
 
 const FINISHER_TOOLS =
 	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,start_tasks,ast_grep,inspect_image,github";
