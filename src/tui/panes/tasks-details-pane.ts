@@ -63,6 +63,7 @@ export class TasksDetailsPane {
 	#selectedIssue: TaskIssue | null = null;
 	#selectedError: string | null = null;
 	#fetchSeq = 0;
+	#lastFetchedSnapshotKey: string | null = null;
 	#selectedPersistedAgents: PersistedAgentSnapshot[] = [];
 
 	#scrollTop = 0;
@@ -103,6 +104,7 @@ export class TasksDetailsPane {
 			this.#selectedError = null;
 			this.#scrollTop = 0;
 			this.#selectedPersistedAgents = [];
+			this.#lastFetchedSnapshotKey = null;
 
 			if (id) {
 				void this.#fetchSelectedIssue(id);
@@ -110,12 +112,28 @@ export class TasksDetailsPane {
 		}
 
 		if (id && selectedFromTasksPane && selectedFromTasksPane.id === id) {
-			if (
-				!this.#selectedIssue ||
-				taskIssueSnapshotKey(this.#selectedIssue) !== taskIssueSnapshotKey(selectedFromTasksPane)
-			) {
-				this.#selectedIssue = selectedFromTasksPane;
-				this.#selectedError = null;
+			const snapshotKey = taskIssueSnapshotKey(selectedFromTasksPane);
+			const currentKey = this.#selectedIssue ? taskIssueSnapshotKey(this.#selectedIssue) : null;
+			if (currentKey !== snapshotKey) {
+				// Inline-swap as a stopgap so the user sees fast updates (status/priority).
+				// Skip the swap when it would drop information (e.g. the poller snapshot
+				// lacks comment bodies that show() returned earlier).
+				const currentCount = Array.isArray(this.#selectedIssue?.comments)
+					? this.#selectedIssue!.comments.length
+					: 0;
+				const snapshotCount = Array.isArray(selectedFromTasksPane.comments)
+					? selectedFromTasksPane.comments.length
+					: 0;
+				if (!this.#selectedIssue || snapshotCount >= currentCount) {
+					this.#selectedIssue = selectedFromTasksPane;
+					this.#selectedError = null;
+				}
+				// Re-fetch authoritative data once per unique snapshot key so polled
+				// metadata/comment-count changes pull comment bodies via show().
+				if (snapshotKey !== this.#lastFetchedSnapshotKey) {
+					this.#lastFetchedSnapshotKey = snapshotKey;
+					void this.#fetchSelectedIssue(id);
+				}
 			}
 		}
 

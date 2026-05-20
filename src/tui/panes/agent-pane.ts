@@ -1,7 +1,7 @@
 import type { AgentRegistry } from "../../agents/registry";
 import type { AgentInfo } from "../../agents/types";
 import { UI_SCROLL_STEP_LINES } from "../../config/constants";
-import { clipAnsi as clipAnsiColor, visibleWidth } from "../colors";
+import { BG, clipAnsi as clipAnsiColor, clipPadAnsiBg, visibleWidth } from "../colors";
 import { getRenderedRpcLines } from "../components/rpc-renderer";
 import { formatTokens } from "../utils/format";
 
@@ -166,7 +166,7 @@ export class AgentPane {
 		const contentLines = renderedLines.slice(scrollTop, scrollTop + logHeight);
 		for (let row = 0; row < logHeight; row += 1) {
 			term.moveTo(region.x, logY + row);
-			term(clipPadAnsi(contentLines[row] ?? "", width));
+			term(clipPadAnsiBg(contentLines[row] ?? "", width, BG.pane));
 		}
 	}
 

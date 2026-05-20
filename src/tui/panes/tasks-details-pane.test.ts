@@ -283,4 +283,88 @@ describe("TasksDetailsPane", () => {
 		expect(rendered).toContain("W   1");
 		expect(rendered).toContain("$0.100");
 	});
+	test("re-fetches via show() when poller snapshot lacks comments that show() would return", async () => {
+		// Poller path returns the lightweight issue (no comment bodies); show() returns the
+		// full version. The pane must fall back to show() when the snapshot key changes,
+		// otherwise the inline-swap permanently downgrades the fetched data.
+		const fullIssueRev1: TaskIssue = makeIssue({
+			updated_at: "2026-01-01T00:00:00.000Z",
+			comments: [
+				{
+					id: 1,
+					issue_id: "task-1",
+					author: "oms-worker",
+					text: "initial-comment-body",
+					created_at: "2026-01-01T00:00:00.000Z",
+				},
+			],
+		});
+		const fullIssueRev2: TaskIssue = makeIssue({
+			updated_at: "2026-01-01T00:01:00.000Z",
+			comments: [
+				...(fullIssueRev1.comments ?? []),
+				{
+					id: 2,
+					issue_id: "task-1",
+					author: "oms-finisher",
+					text: "second-comment-body",
+					created_at: "2026-01-01T00:01:00.000Z",
+				},
+			],
+		});
+
+		let currentFull = fullIssueRev1;
+		// Lightweight snapshot: keep updated_at/comments-count in sync with full, but strip bodies.
+		const lightweightSnapshot = (): TaskIssue => ({
+			...currentFull,
+			comments: (currentFull.comments ?? []).map(c => ({ ...c, text: "" })),
+		});
+
+		let showCalls = 0;
+		const tasksClient = {
+			show: async () => {
+				showCalls += 1;
+				return { ...currentFull, comments: [...(currentFull.comments ?? [])] };
+			},
+		} as unknown as TaskStoreClient;
+
+		const tasksPane = {
+			getSelectedIssueId: () => "task-1",
+			getSelectedIssue: () => lightweightSnapshot(),
+		};
+
+		const pane = new TasksDetailsPane({
+			tasksClient,
+			tasksPane: tasksPane as never,
+		});
+
+		const term = createTerminalStub();
+		const region: Region = { x: 1, y: 1, width: 100, height: 30 };
+
+		// First render: selection appears for the first time → fires initial fetch.
+		pane.render(term.term, region);
+		await Bun.sleep(0);
+		expect(showCalls).toBeGreaterThanOrEqual(1);
+		const baselineShowCalls = showCalls;
+		term.reset();
+		pane.render(term.term, region);
+		expect(term.text()).toContain("initial-comment-body");
+
+		// External update: a new comment is added. The poller snapshot reports the new
+		// comment count but with an empty body; show() returns the full body.
+		currentFull = fullIssueRev2;
+
+		term.reset();
+		pane.render(term.term, region);
+		await Bun.sleep(0);
+		// show() must have been re-invoked because the snapshot key changed.
+		expect(showCalls).toBeGreaterThan(baselineShowCalls);
+
+		term.reset();
+		pane.render(term.term, region);
+		const rendered = term.text();
+		// Body from show() must be visible, not the stripped poller snapshot.
+		expect(rendered).toContain("initial-comment-body");
+		expect(rendered).toContain("second-comment-body");
+	});
 });

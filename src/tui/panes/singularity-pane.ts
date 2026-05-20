@@ -2,6 +2,8 @@ import type { Terminal } from "@xterm/headless";
 import * as xtermHeadless from "@xterm/headless";
 import type { ThinkingLevel } from "../../config";
 import { logger } from "../../utils";
+import { BOLD, BOX, clipAnsi, FG, RESET, visibleWidth } from "../colors";
+import { wrapLine } from "../components/text-formatter";
 import { PtyBridge } from "../pty-bridge";
 
 type TerminalLike = {
@@ -93,6 +95,7 @@ export class SingularityPane {
 	#startedAt: number | null = null;
 	#startCmd: string[] | null = null;
 	#hasOutput = false;
+	#notice: { title: string; bodyLines: string[] } | null = null;
 
 	#cols: number;
 	#rows: number;
@@ -265,6 +268,21 @@ export class SingularityPane {
 		return true;
 	}
 
+	/**
+	 * Surface a system event (e.g. finisher close summary) to the user as a
+	 * persistent banner overlaid on the top rows of the pane's render region.
+	 *
+	 * The notice is *not* written into the xterm buffer and the orchestrator omp
+	 * process never sees it — it lives entirely in our parent renderer. A newer
+	 * notice replaces any prior one; the banner has no TTL.
+	 */
+	injectSystemNotice(title: string, body: string): void {
+		const safeTitle = sanitizeNoticeText(title);
+		const safeBody = sanitizeNoticeText(body);
+		this.#notice = { title: safeTitle, bodyLines: safeBody.split("\n") };
+		this.#onDirty?.();
+	}
+
 	#detectVisibleOutput(): boolean {
 		return viewportHasRenderableText(this.#term, this.#rows);
 	}
@@ -310,7 +328,7 @@ export class SingularityPane {
 			const lines = this.#startupError.split("\n");
 			for (let row = 0; row < height; row += 1) {
 				term.moveTo(region.x, region.y + row);
-				const text = row < lines.length ? lines[row] ?? "" : "";
+				const text = row < lines.length ? (lines[row] ?? "") : "";
 				term(clipPad(text, width));
 			}
 			return;
@@ -359,16 +377,20 @@ export class SingularityPane {
 			clearRows(height >= 2 ? 2 : 1);
 			return;
 		}
+		const bannerRows = this.#renderNoticeBanner(term, region, height);
+		const ompHeight = height - bannerRows;
+		const ompBaseY = region.y + bannerRows;
+		if (ompHeight <= 0) return;
 
 		const buf = this.#term.buffer.active;
 		const startY = buf.viewportY;
 		const nullCell = buf.getNullCell();
 
-		for (let row = 0; row < height; row += 1) {
+		for (let row = 0; row < ompHeight; row += 1) {
 			const y = startY + row;
 			const line = buf.getLine(y);
 
-			term.moveTo(region.x, region.y + row);
+			term.moveTo(region.x, ompBaseY + row);
 			term(renderBufferLineAnsi(line, nullCell, width));
 		}
 
@@ -378,7 +400,7 @@ export class SingularityPane {
 			const cursorRow = cursorAbsY - startY;
 			let cursorCol = buf.cursorX;
 
-			if (cursorRow >= 0 && cursorRow < height) {
+			if (cursorRow >= 0 && cursorRow < ompHeight) {
 				if (cursorCol < 0) cursorCol = 0;
 				if (cursorCol >= width) cursorCol = Math.max(0, width - 1);
 
@@ -387,13 +409,75 @@ export class SingularityPane {
 				let ch = cell && typeof cell.getChars === "function" ? cell.getChars() : "";
 				if (!ch) ch = " ";
 
-				term.moveTo(region.x + cursorCol, region.y + cursorRow);
+				term.moveTo(region.x + cursorCol, ompBaseY + cursorRow);
 				term(`\x1b[7m${ch[0] ?? " "}\x1b[0m`);
 			}
 		} catch (err) {
 			logger.debug("tui/panes/singularity-pane.ts: best-effort failure rendering cursor highlight", { err });
 		}
 	}
+
+	#renderNoticeBanner(term: TerminalLike, region: Region, maxRows: number): number {
+		const notice = this.#notice;
+		if (!notice || maxRows < 3) return 0;
+		const width = Math.max(0, region.width);
+		if (width <= 0) return 0;
+
+		// Flatten + word-wrap body lines to the available width.
+		const wrappedBody: string[] = [];
+		for (const raw of notice.bodyLines) {
+			if (raw.length === 0) {
+				wrappedBody.push("");
+				continue;
+			}
+			for (const chunk of wrapLine(raw, width)) wrappedBody.push(chunk);
+		}
+
+		// Total row budget: title + body + separator, but never starve omp of <2 rows.
+		const desired = wrappedBody.length + 2;
+		const budget = Math.min(maxRows - 2, desired);
+		if (budget < 1) return 0;
+
+		const padRow = (text: string): string => {
+			const clipped = clipAnsi(text, width);
+			const vw = visibleWidth(clipped);
+			return vw >= width ? clipped : clipped + " ".repeat(width - vw);
+		};
+
+		const cyan = "\x1b[38;2;0;206;209m";
+		const rendered: string[] = [];
+		rendered.push(padRow(`${BOLD}${cyan}── ${notice.title} ──${RESET}`));
+
+		// Body lines fill the middle; the last row is reserved for the separator
+		// whenever we have at least 2 total rows.
+		const bodyCap = Math.max(0, budget - 2);
+		for (let i = 0; i < bodyCap && i < wrappedBody.length; i += 1) {
+			rendered.push(padRow(`${FG.text}${wrappedBody[i] ?? ""}${RESET}`));
+		}
+		if (budget >= 2) {
+			rendered.push(padRow(`${FG.dim}${BOX.h.repeat(width)}${RESET}`));
+		}
+
+		const out = rendered.slice(0, budget);
+		for (let row = 0; row < out.length; row += 1) {
+			term.moveTo(region.x, region.y + row);
+			term(out[row] ?? "");
+		}
+		return out.length;
+	}
+}
+
+function sanitizeNoticeText(value: string | undefined | null): string {
+	const raw = typeof value === "string" ? value : "";
+	// Strip OSC/CSI control sequences plus non-LF control bytes so an embedded
+	// summary can never alter our pane's terminal state. Tabs become spaces; CR
+	// is collapsed into the existing CRLF emission path.
+	return raw
+		.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+		.replace(/\r\n?/g, "\n")
+		.replace(/\t/g, "    ")
+		.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "");
 }
 
 function formatCmd(cmd: readonly string[]): string {

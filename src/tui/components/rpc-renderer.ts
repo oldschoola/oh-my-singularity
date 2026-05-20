@@ -661,7 +661,10 @@ function renderTextBlockLines(block: TextBlock, width: number, tagContentWidth =
 	switch (block.style) {
 		case "assistant": {
 			const markdownLines = renderMarkdownLines(block.text, width);
-			return markdownLines.length > 0 ? markdownLines : wrapped;
+			if (markdownLines.length > 0) return markdownLines;
+			// Markdown lexer produced nothing (rare — happens for trailing whitespace-only
+			// chunks). Fall back to plain wrapping but force bright body text.
+			return wrapped.map(line => `${FG.text}${line}${RESET}`);
 		}
 		case "user":
 			return wrapped.map(line => `${FG.border}${line}${RESET}`);

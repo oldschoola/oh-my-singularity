@@ -318,10 +318,17 @@ export class TasksPane {
 	#rebuildIssueTree(issues: readonly TaskIssue[]): void {
 		this.#updateSelectionKey();
 
+		// Force-include the currently selected issue so closing a task does not silently
+		// reassign selection. Without this, `#restoreSelection` clamps to the nearest
+		// remaining index when the selected task is filtered out.
+		const selectedIssueId = this.#selectionKey?.type === "issue" ? this.#selectionKey.id : null;
 		const visibleIssues = this.#showClosed
 			? issues
 			: issues.filter(
-					i => !isClosedOrCompletedStatus(i.status) || (this.#registry?.getByTask(i.id).length ?? 0) > 0,
+					i =>
+						!isClosedOrCompletedStatus(i.status) ||
+						(this.#registry?.getByTask(i.id).length ?? 0) > 0 ||
+						i.id === selectedIssueId,
 				);
 
 		this.#issueLines = renderTaskTreeLines(visibleIssues, LIMIT_TASK_TREE_RENDER_DEPTH);

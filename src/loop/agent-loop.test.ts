@@ -877,6 +877,94 @@ describe("AgentLoop delegation", () => {
 		expect(abortCalls).toEqual(["finisher:task-1"]);
 	});
 
+	test("handleFinisherCloseTask invokes onFinisherClosed with the finisher's summary", async () => {
+		const tasksClient = {
+			close: async () => {},
+			updateStatus: async () => {},
+			comment: async () => {},
+			setAgentState: async () => {},
+			clearSlot: async () => {},
+		} as unknown as TaskStoreClient;
+		const registry = new AgentRegistry({ tasksClient });
+		const scheduler = {
+			getInProgressTasksWithoutAgent: async () => [],
+			getNextTasks: async () => [],
+			findTasksUnblockedBy: async () => [],
+		} as never;
+		const spawner = {} as never;
+
+		const notices: Array<{ taskId: string; summary: string; reason: string }> = [];
+		const loop = new AgentLoop({
+			tasksClient,
+			registry,
+			scheduler,
+			spawner,
+			config: { ...DEFAULT_CONFIG, pollIntervalMs: 50, steeringIntervalMs: 50 },
+			onFinisherClosed: event => {
+				notices.push(event);
+			},
+		});
+
+		registry.register({
+			id: "finisher:task-summary",
+			agentType: "finisher",
+			taskId: "task-summary",
+			tasksAgentId: "agent-finisher-summary",
+			status: "running",
+			usage: createEmptyAgentUsage(),
+			events: [],
+			spawnedAt: 1,
+			lastActivity: 2,
+			rpc: makeRpc({
+				abort: async () => {},
+				getLastAssistantText: async () => "verified acceptance criteria; all done",
+			}),
+		});
+
+		// 1. With explicit `message`, the notice uses the message verbatim.
+		await loop.handleFinisherCloseTask({
+			taskId: "task-summary",
+			reason: "all done",
+			agentId: "finisher:task-summary",
+			message: "Closed: implemented X, verified Y.",
+		});
+		expect(notices).toHaveLength(1);
+		expect(notices[0]).toEqual({
+			taskId: "task-summary",
+			summary: "Closed: implemented X, verified Y.",
+			reason: "all done",
+		});
+
+		// 2. Without explicit `message`, the notice falls back to the finisher's
+		//    last assistant text.
+		registry.register({
+			id: "finisher:task-fallback",
+			agentType: "finisher",
+			taskId: "task-fallback",
+			tasksAgentId: "agent-finisher-fallback",
+			status: "running",
+			usage: createEmptyAgentUsage(),
+			events: [],
+			spawnedAt: 1,
+			lastActivity: 2,
+			rpc: makeRpc({
+				abort: async () => {},
+				getLastAssistantText: async () => "verified acceptance criteria; all done",
+			}),
+		});
+		await loop.handleFinisherCloseTask({
+			taskId: "task-fallback",
+			reason: "all done",
+			agentId: "finisher:task-fallback",
+		});
+		expect(notices).toHaveLength(2);
+		expect(notices[1]).toEqual({
+			taskId: "task-fallback",
+			summary: "verified acceptance criteria; all done",
+			reason: "all done",
+		});
+	});
+
 	test("handleFinisherCloseTask closes task but skips dependent auto-spawn while paused", async () => {
 		const { loop, registry, calls } = createLoopFixture();
 		(loop as unknown as { paused: boolean }).paused = true;
@@ -1670,9 +1758,7 @@ describe("AgentLoop finisher exit routing", () => {
 		expect(calls.setAgentState).toContainEqual({ id: "agent-finisher:task-respawn:old", state: "done" });
 	});
 
-	test(
-		"finisher gives up after repeated exits without close/advance",
-		async () => {
+	test("finisher gives up after repeated exits without close/advance", async () => {
 		const fixture = createLoopFixture();
 		const { loop, calls } = fixture;
 		(loop as unknown as { running: boolean }).running = true;

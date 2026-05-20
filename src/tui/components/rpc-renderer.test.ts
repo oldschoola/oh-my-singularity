@@ -669,6 +669,74 @@ describe("rpc renderer tool and wake rendering", () => {
 	});
 });
 
+describe("rpc renderer edit/apply_patch diff rendering", () => {
+	test("renders apply_patch result as a colored unified diff", () => {
+		const patch = ["@@ -1,3 +1,3 @@", " keep this line", "-old line", "+new line", " trailing context"].join("\n");
+		const output = renderWithWidth(
+			[
+				{
+					type: "rpc",
+					data: {
+						type: "tool_execution_start",
+						toolCallId: "call-patch-1",
+						toolName: "apply_patch",
+						args: { path: "src/foo.ts", input: patch },
+					},
+				},
+				{
+					type: "rpc",
+					data: {
+						type: "tool_execution_end",
+						toolCallId: "call-patch-1",
+						toolName: "apply_patch",
+						isError: false,
+						result: { content: [{ type: "text", text: "ok" }] },
+					},
+				},
+			],
+			200,
+		);
+
+		// Hunk header and +/- gutters must appear in the rendered output.
+		expect(output).toContain("@@ -1,3 +1,3 @@");
+		expect(output).toContain("+ new line");
+		expect(output).toContain("- old line");
+		// Header preview should include the diff badge.
+		expect(output).toContain("+1 -1 1 hunk");
+	});
+
+	test("renders edit with the custom omp patch format using add/remove colors", () => {
+		const patch = ["@@ src/foo.ts", "= 1ab..1ab", "~replaced content"].join("\n");
+		const output = renderWithWidth(
+			[
+				{
+					type: "rpc",
+					data: {
+						type: "tool_execution_start",
+						toolCallId: "call-edit-1",
+						toolName: "edit",
+						args: { path: "src/foo.ts", input: patch },
+					},
+				},
+				{
+					type: "rpc",
+					data: {
+						type: "tool_execution_end",
+						toolCallId: "call-edit-1",
+						toolName: "edit",
+						isError: false,
+						result: { content: [{ type: "text", text: "ok" }] },
+					},
+				},
+			],
+			200,
+		);
+
+		expect(output).toContain("@@ src/foo.ts");
+		expect(output).toContain("replaced content");
+	});
+});
+
 describe("OMS custom tool rendering", () => {
 	test("renders delete_task_issue with content and args", () => {
 		const output = render([

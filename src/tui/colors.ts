@@ -13,6 +13,10 @@ export const FG = {
 	warning: "\x1b[38;2;228;192;15m", // #e4c00f yellow
 	dim: "\x1b[38;2;95;102;115m", // #5f6673
 	muted: "\x1b[38;2;119;125;136m", // #777d88
+	text: "\x1b[38;2;220;220;220m", // #dcdcdc — high-contrast body copy
+	added: "\x1b[38;2;137;221;129m", // #89dd81 green (diff +)
+	removed: "\x1b[38;2;252;58;75m", // #fc3a4b red (diff −)
+	hunk: "\x1b[38;2;105;180;255m", // #69b4ff cyan/blue (diff @@ header)
 } as const;
 
 // Background colors
@@ -21,6 +25,7 @@ export const BG = {
 	toolSuccess: "\x1b[48;2;22;26;31m", // #161a1f
 	toolError: "\x1b[48;2;41;29;29m", // #291d1d
 	statusLine: "\x1b[48;2;18;18;18m", // #121212
+	pane: "\x1b[48;2;0;0;0m", // #000000 — solid black for turn-rendering panes
 } as const;
 
 // Control sequences
@@ -264,4 +269,19 @@ export function clipAnsi(text: string, width: number): string {
 
 	if (sawAnsi && !out.endsWith(RESET)) out += RESET;
 	return out;
+}
+
+/**
+ * Background-aware variant of `clipPadAnsi`: clips to `width`, replaces mid-line
+ * full `RESET` (`\x1b[0m`) sequences with `RESET_FG` (`\x1b[39m`) so the painted
+ * background survives nested style resets, then opens `bg` once and closes with
+ * a final `RESET`. Pad cells inherit `bg` to fill the entire region uniformly.
+ */
+export function clipPadAnsiBg(text: string, width: number, bg: string): string {
+	if (width <= 0) return "";
+	const clipped = clipAnsi(text, width);
+	const bgSafe = clipped.replace(/\x1b\[0m/g, RESET_FG);
+	const vw = visibleWidth(clipped);
+	const pad = vw < width ? " ".repeat(width - vw) : "";
+	return `${bg}${bgSafe}${pad}${RESET}`;
 }

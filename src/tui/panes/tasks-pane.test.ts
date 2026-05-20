@@ -115,3 +115,52 @@ describe("TasksPane agent line formatting", () => {
 		expect(rendered).not.toContain("[  done  ]");
 	});
 });
+
+describe("TasksPane selection preservation", () => {
+	test("keeps selection on a task that transitions to done even when closed tasks are hidden", () => {
+		const selected = makeIssue({ id: "task-keep", title: "Keep me selected" });
+		const other = makeIssue({ id: "task-other", title: "Other task" });
+
+		const pollerEvents = new EventEmitter();
+		let snapshot: TaskIssue[] = [selected, other];
+		const poller = {
+			readySnapshot: [] as TaskIssue[],
+			get issuesSnapshot(): readonly TaskIssue[] {
+				return snapshot;
+			},
+			start: () => {},
+			stop: () => {},
+			setIntervalMs: () => {},
+			on(event: string | symbol, listener: (...args: unknown[]) => void) {
+				pollerEvents.on(event, listener);
+				return this;
+			},
+		} as unknown as TaskPollerLike;
+
+		const tasksClient = {
+			heartbeat: async () => null,
+		} as unknown as TaskStoreClient;
+		const registry = new AgentRegistry({ tasksClient, tasksAvailable: false });
+
+		const pane = new TasksPane({ poller, registry });
+		const terminal = createTerminalBuffer();
+		const region: Region = { x: 1, y: 1, width: 220, height: 12 };
+
+		// Initial render establishes selection on the first task.
+		pane.render(terminal.term, region);
+		expect(pane.getSelectedIssueId()).toBe("task-keep");
+
+		// Task transitions to done and a fresh task appears. With closed tasks hidden,
+		// "task-keep" would normally be filtered out and selection would jump to a sibling.
+		const closedSelected = makeIssue({ id: "task-keep", title: "Keep me selected", status: "done" });
+		const fresh = makeIssue({ id: "task-fresh", title: "Newly created" });
+		snapshot = [closedSelected, other, fresh];
+		pollerEvents.emit("issues-changed", snapshot);
+
+		// Flush queued microtask rebuild.
+		return Promise.resolve().then(() => {
+			pane.render(terminal.term, region);
+			expect(pane.getSelectedIssueId()).toBe("task-keep");
+		});
+	});
+});

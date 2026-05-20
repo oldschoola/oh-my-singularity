@@ -96,15 +96,19 @@ export const SINGULARITY_EXTENSION_FILENAMES = [
 
 // --- Default tool allowlists (module-private, consumed via AGENT_CONFIGS entries) ---
 
-const WORKER_TOOLS = "bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task";
+const WORKER_TOOLS =
+	"bash,read,edit,write,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,ast_grep,ast_edit,debug,eval,calc,github,inspect_image,search_tool_bm25";
 
-const FINISHER_TOOLS = "bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,start_tasks";
+const FINISHER_TOOLS =
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,start_tasks,ast_grep,inspect_image,github";
 
 const MERGER_TOOLS = "bash,read,grep,find";
 
-const STEERING_TOOLS = "bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task";
+const STEERING_TOOLS =
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,ast_grep,inspect_image,github";
 
-const ISSUER_TOOLS = "bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task";
+const ISSUER_TOOLS =
+	"bash,read,grep,find,lsp,python,notebook,browser,fetch,web_search,todo_write,task,ast_grep,inspect_image,github";
 
 // --- Thinking levels ---
 

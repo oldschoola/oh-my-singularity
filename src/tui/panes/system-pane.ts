@@ -1,6 +1,6 @@
 import type { AgentRegistry } from "../../agents/registry";
 import type { SessionLogWriter } from "../../session-log-writer";
-import { clipAnsi, visibleWidth } from "../colors";
+import { BG, clipAnsi, clipPadAnsiBg, visibleWidth } from "../colors";
 import { getRenderedRpcLines } from "../components/rpc-renderer";
 
 type TerminalLike = {
@@ -104,7 +104,7 @@ export class SystemPane {
 
 		for (let row = 0; row < height; row += 1) {
 			term.moveTo(region.x, region.y + row);
-			term(clipPadAnsi(lines[row] ?? "", width));
+			term(clipPadAnsiBg(lines[row] ?? "", width, BG.pane));
 		}
 	}
 }

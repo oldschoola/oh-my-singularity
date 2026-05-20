@@ -1,6 +1,7 @@
 import { marked, type Token } from "marked";
 import { UI_MARKDOWN_CACHE_LIMIT } from "../../config/constants";
 import { BOLD, BOX, FG, RESET_FG, UNBOLD, visibleWidth } from "../colors";
+import { highlightLine } from "./syntax";
 
 const ITALIC = "\x1b[3m";
 const UNITALIC = "\x1b[23m";
@@ -82,7 +83,13 @@ class AssistantMarkdownRenderer {
 				wrappedLines.push("");
 				continue;
 			}
-			wrappedLines.push(...wrapAnsiLine(line, this.#width));
+			for (const w of wrapAnsiLine(line, this.#width)) {
+				// Promote bright body text as the line's neutral foreground so default
+				// terminal foreground (often dim grey) is overridden. Mid-line
+				// `RESET_FG` is rewritten to `FG.text` so spans of inline color don't
+				// leak back to dim after they end.
+				wrappedLines.push(`${FG.text}${w.replaceAll(RESET_FG, FG.text)}${RESET_FG}`);
+			}
 		}
 
 		return wrappedLines;
@@ -191,8 +198,10 @@ class AssistantMarkdownRenderer {
 
 		const border = `${FG.border}${BOX.v}${RESET_FG}`;
 		for (const codeLine of wrappedCodeLines) {
-			const paddedCodeLine = `${codeLine}${" ".repeat(Math.max(0, frameContentWidth - visibleWidth(codeLine)))}`;
-			lines.push(`${border} ${FG.muted}${paddedCodeLine}${RESET_FG} ${border}`);
+			const visibleLineWidth = visibleWidth(codeLine);
+			const highlighted = lang ? highlightLine(codeLine, lang) : `${FG.text}${codeLine}${RESET_FG}`;
+			const padCount = Math.max(0, frameContentWidth - visibleLineWidth);
+			lines.push(`${border} ${highlighted}${" ".repeat(padCount)} ${border}`);
 		}
 
 		lines.push(`${FG.border}${BOX.bl}${BOX.h.repeat(frameContentWidth + 2)}${BOX.br}${RESET_FG}`);
