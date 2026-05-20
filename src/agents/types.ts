@@ -1,5 +1,7 @@
 import type { AgentType, SpawnableAgent } from "../config/constants";
+import type { AgentExitClassification } from "./exit-classification";
 export type { AgentType, SpawnableAgent };
+export type { AgentExitClassification };
 
 export type AgentStatus =
 	| "spawning"
@@ -95,6 +97,13 @@ export interface AgentInfo {
 	contextTokens?: number;
 	/** Number of successful compaction events observed. */
 	compactionCount?: number;
+
+	/**
+	 * Why the agent transitioned to a terminal status. Set on the same
+	 * transition that flips {@link AgentInfo.status} to "done", "stopped",
+	 * "failed", "aborted", or "dead". Absent on running/spawning agents.
+	 */
+	exitClassification?: AgentExitClassification;
 
 	/** RPC client wrapper for agent communication. */
 	rpc?: unknown;

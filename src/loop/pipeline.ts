@@ -1,3 +1,4 @@
+import { type AgentExitClassification, isRetryableExit } from "../agents/exit-classification";
 import type { AgentRegistry } from "../agents/registry";
 import { OmsRpcClient } from "../agents/rpc-wrapper";
 import type { AgentSpawner } from "../agents/spawner";
@@ -29,7 +30,11 @@ export interface PipelineServices {
 	finishAgent: (
 		agent: AgentInfo,
 		status: "done" | "stopped" | "dead",
-		opts?: { crashReason?: string; crashEvent?: unknown },
+		opts?: {
+			crashReason?: string;
+			crashEvent?: unknown;
+			classification?: AgentExitClassification;
+		},
 	) => Promise<void>;
 	logAgentStart: (startedBy: string, agent: AgentInfo, context?: string) => void;
 	logAgentFinished: (agent: AgentInfo, explicitText?: string) => Promise<void>;
@@ -87,12 +92,14 @@ type AttemptResult =
 			sessionId: string | null;
 			missingAdvanceTool: boolean;
 			agentStatus?: "stopped" | "dead";
+			classification?: AgentExitClassification;
 	  };
 
 type AttemptFailure = {
 	reason: string;
 	sessionId: string | null;
 	missingAdvanceTool: boolean;
+	classification?: AgentExitClassification;
 };
 
 type RetryStep = {
@@ -199,7 +206,11 @@ export class PipelineManager {
 	private readonly finishAgent: (
 		agent: AgentInfo,
 		status: "done" | "stopped" | "dead",
-		opts?: { crashReason?: string; crashEvent?: unknown },
+		opts?: {
+			crashReason?: string;
+			crashEvent?: unknown;
+			classification?: AgentExitClassification;
+		},
 	) => Promise<void>;
 	private readonly logAgentStart: (startedBy: string, agent: AgentInfo, context?: string) => void;
 	private readonly logAgentFinished: (agent: AgentInfo, explicitText?: string) => Promise<void>;
@@ -580,8 +591,27 @@ export class PipelineManager {
 				reason: result.reason,
 				sessionId: result.sessionId,
 				missingAdvanceTool: result.missingAdvanceTool,
+				classification: result.classification,
 			};
 			allFailures.push(failure);
+
+			// Plan: only transient transport-layer failures are retried. Hard
+			// failures (spawn_failure, process_crash, user_killed, etc.) skip the
+			// retry loop and surface the failure immediately. Classification
+			// missing means we lack signal — keep the legacy retry behavior.
+			if (failure.classification && !isRetryableExit(failure.classification)) {
+				this.loopLog(
+					`${agentLabel} non-retryable failure (${failure.classification}) for ${task.id}; halting retries`,
+					"warn",
+					{
+						taskId: task.id,
+						attempt: attempt + 1,
+						classification: failure.classification,
+						reason: failure.reason,
+					},
+				);
+				break;
+			}
 
 			const nextStep = config.getNextStep({ attemptIndex: attempt, lastFailure: failure, allFailures });
 			if (!nextStep) break;
@@ -596,6 +626,7 @@ export class PipelineManager {
 				attempt: attempt + 1,
 				sessionId: failure.sessionId,
 				reason: failure.reason,
+				classification: failure.classification,
 			});
 
 			currentStep = nextStep;
@@ -641,6 +672,7 @@ export class PipelineManager {
 				reason: step.mode === "resume" ? `${agentName} resume failed` : `${agentName} spawn failed`,
 				sessionId: normalizedResumeSessionId,
 				missingAdvanceTool: false,
+				classification: "spawn_failure",
 			};
 		}
 
@@ -655,8 +687,14 @@ export class PipelineManager {
 
 		if (!agentRpc || !(agentRpc instanceof OmsRpcClient)) {
 			const sessionId = captureSessionId();
-			await this.finishAgent(agent, "dead");
-			return { ok: false, reason: `${agentName} has no rpc`, sessionId, missingAdvanceTool: false };
+			await this.finishAgent(agent, "dead", { classification: "spawn_failure" });
+			return {
+				ok: false,
+				reason: `${agentName} has no rpc`,
+				sessionId,
+				missingAdvanceTool: false,
+				classification: "spawn_failure",
+			};
 		}
 
 		try {
@@ -678,7 +716,15 @@ export class PipelineManager {
 				this.registry.get(agent.id)?.status === "stopped" ? ("stopped" as const) : ("dead" as const);
 			const sessionId = captureSessionId();
 			if (agentStatus !== "stopped") await this.finishAgent(agent, "dead");
-			return { ok: false, reason: `${agentName} died`, sessionId, missingAdvanceTool: false, agentStatus };
+			const classification = this.registry.get(agent.id)?.exitClassification;
+			return {
+				ok: false,
+				reason: `${agentName} died`,
+				sessionId,
+				missingAdvanceTool: false,
+				agentStatus,
+				classification,
+			};
 		}
 
 		let text: string | null = null;

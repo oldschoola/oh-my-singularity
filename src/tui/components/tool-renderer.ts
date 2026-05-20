@@ -1,8 +1,10 @@
 import { UI_RESULT_MAX_LINES } from "../../config/constants";
 import type { TaskComment, TaskIssue } from "../../tasks/types";
 import { asRecord, clipText, previewValue, squashWhitespace } from "../../utils";
+import { redactString, redactValue } from "../../utils/redact";
 import { BG, BOLD, BOX, clipAnsi, FG, ICON, RESET, RESET_FG, UNBOLD, visibleWidth } from "../colors";
 import { formatIssuePriority, formatIssueStatusStyled } from "../utils/task-issue-format";
+import { formatDiffBadge, renderUnifiedPatch } from "./diff";
 import { sanitizeRenderableText, tryFormatJson, wrapLine } from "./text-formatter";
 
 export type ToolBlock = {
@@ -641,9 +643,20 @@ export function formatToolArgs(toolName: string, args: unknown): string {
 		case "bash":
 			return typeof rec.command === "string" ? clipText(squashWhitespace(rec.command), 80) : previewValue(args, 80);
 		case "edit":
-			return typeof rec.path === "string" ? rec.path : previewValue(args, 80);
-		case "write":
-			return typeof rec.path === "string" ? rec.path : previewValue(args, 80);
+		case "apply_patch": {
+			const path = typeof rec.path === "string" ? rec.path : "";
+			const badge = computeEditArgsBadge(rec);
+			if (path && badge) return `${path}  ${badge}`;
+			if (path) return path;
+			return previewValue(args, 80);
+		}
+		case "write": {
+			const path = typeof rec.path === "string" ? rec.path : "";
+			const badge = computeWriteArgsBadge(rec);
+			if (path && badge) return `${path}  ${badge}`;
+			if (path) return path;
+			return previewValue(args, 80);
+		}
 		case "find":
 			return typeof rec.pattern === "string" ? rec.pattern : previewValue(args, 80);
 		case "lsp":
@@ -694,6 +707,60 @@ export function formatToolArgs(toolName: string, args: unknown): string {
 	}
 }
 
+/**
+ * Best-effort line-change badge for `edit` / `apply_patch` args. Returns
+ * something like `+5 -3 1 hunk` when the args carry a unified-diff patch.
+ * Returns the empty string when we cannot derive a meaningful count, so the
+ * header preview falls back to just the path.
+ */
+function computeEditArgsBadge(rec: Record<string, unknown>): string {
+	const patch = typeof rec.input === "string" ? rec.input : typeof rec.patch === "string" ? rec.patch : "";
+	if (!patch) return "";
+	if (looksLikeUnifiedDiff(patch)) {
+		const { stats } = renderUnifiedPatch(patch, { maxLines: 0 });
+		return formatDiffBadge(stats);
+	}
+	// Custom omp patch: count `~` insertion lines and `-` deletion ranges as a
+	// rough approximation. Better than nothing.
+	let added = 0;
+	let removed = 0;
+	let hunks = 0;
+	for (const line of patch.split(/\r?\n/)) {
+		if (line.startsWith("~")) added += 1;
+		else if (line.startsWith("- ")) removed += countOmpDeleteRange(line);
+		else if (line.startsWith("= ")) {
+			removed += countOmpDeleteRange(line);
+			hunks += 1;
+		} else if (line.startsWith("+ ") || line.startsWith("< ")) {
+			hunks += 1;
+		} else if (line.startsWith("@@")) {
+			hunks += 1;
+		}
+	}
+	return formatDiffBadge({ added, removed, hunks });
+}
+
+function computeWriteArgsBadge(rec: Record<string, unknown>): string {
+	const content = typeof rec.content === "string" ? rec.content : "";
+	if (!content) return "";
+	const lineCount = content.split(/\r?\n/).length;
+	return `+${lineCount} lines`;
+}
+
+function looksLikeUnifiedDiff(patch: string): boolean {
+	return /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(patch);
+}
+
+// `- 10..15` deletes 6 lines; `- 10..10` deletes 1.
+function countOmpDeleteRange(line: string): number {
+	const m = line.match(/^[-=]\s+(\d+)(?:[a-z]{2})?\.\.(\d+)/);
+	if (!m) return 1;
+	const start = Number.parseInt(m[1] ?? "0", 10);
+	const end = Number.parseInt(m[2] ?? "0", 10);
+	if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 1;
+	return end - start + 1;
+}
+
 function formatStructuredToolResultLines(block: ToolBlock, contentWidth: number): string[] | null {
 	const base = getToolBaseName(block.toolName);
 	if (base === "tasks") {
@@ -701,7 +768,70 @@ function formatStructuredToolResultLines(block: ToolBlock, contentWidth: number)
 		if (source === null) return null;
 		return formatTasksStructuredResultLines(source, block.argsData, contentWidth, block.state === "error");
 	}
+	if (base === "edit" || base === "apply_patch") {
+		return formatPatchResultLines(block, contentWidth);
+	}
+	if (base === "write") {
+		return formatWriteResultLines(block);
+	}
 	return null;
+}
+
+/**
+ * Render the patch payload as a colored diff inside the tool block body. Used
+ * for `edit` / `apply_patch`. Falls back to null when the args don't carry a
+ * patch we can render, in which case the caller renders the plain result text.
+ */
+function formatPatchResultLines(block: ToolBlock, _contentWidth: number): string[] | null {
+	const rec = asRecord(block.argsData);
+	if (!rec) return null;
+	const patch = typeof rec.input === "string" ? rec.input : typeof rec.patch === "string" ? rec.patch : "";
+	if (!patch) return null;
+	if (looksLikeUnifiedDiff(patch)) {
+		const { lines } = renderUnifiedPatch(patch, { maxLines: UI_RESULT_MAX_LINES * 4 });
+		return lines;
+	}
+	return colorizeOmpPatch(patch);
+}
+
+/**
+ * Show the new content (line-numbered) for `write` so the user can see what
+ * was written, not just a "(no output)" placeholder.
+ */
+function formatWriteResultLines(block: ToolBlock): string[] | null {
+	const rec = asRecord(block.argsData);
+	if (!rec) return null;
+	const content = typeof rec.content === "string" ? rec.content : "";
+	if (!content) return null;
+	const lines = content.split(/\r?\n/);
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; i += 1) {
+		const gutter = String(i + 1).padStart(4, " ");
+		out.push(`${FG.added}${gutter} + ${lines[i] ?? ""}${RESET_FG}`);
+	}
+	return out;
+}
+
+function colorizeOmpPatch(patch: string): string[] {
+	const out: string[] = [];
+	for (const line of patch.split(/\r?\n/)) {
+		if (line.startsWith("@@ ")) {
+			out.push(`${FG.hunk}${line}${RESET_FG}`);
+		} else if (line.startsWith("~")) {
+			out.push(`${FG.added}+ ${line.slice(1)}${RESET_FG}`);
+		} else if (line.startsWith("+ ") || line.startsWith("< ")) {
+			out.push(`${FG.hunk}${line}${RESET_FG}`);
+		} else if (line.startsWith("- ")) {
+			out.push(`${FG.removed}${line}${RESET_FG}`);
+		} else if (line.startsWith("= ")) {
+			out.push(`${FG.hunk}${line}${RESET_FG}`);
+		} else if (line.length === 0) {
+			out.push("");
+		} else {
+			out.push(`${FG.text}${line}${RESET_FG}`);
+		}
+	}
+	return out;
 }
 function isTaskCommentsResult(block: ToolBlock): boolean {
 	if (getToolBaseName(block.toolName) !== "tasks") return false;
@@ -723,7 +853,28 @@ function hasNoMeaningfulOutput(block: ToolBlock): boolean {
 	return payload === null || payload === undefined;
 }
 
-export function renderToolBlockLines(block: ToolBlock, width: number): string[] {
+/**
+ * Redact secrets from a tool block before rendering. Preserves structure
+ * (keys + shape) so structured renderers keep working, but rewrites any
+ * string values that look like Bearer tokens or API keys, and replaces
+ * env-var-style secret values inside argsData/resultData with `[REDACTED]`.
+ *
+ * Truncation is left to the existing per-tool length caps — redact is
+ * structural only here.
+ */
+function redactBlockForDisplay(block: ToolBlock): ToolBlock {
+	return {
+		...block,
+		argsPreview: redactString(block.argsPreview),
+		argsData: block.argsData !== undefined ? redactValue(block.argsData, { truncate: false }) : undefined,
+		resultPreview: redactString(block.resultPreview),
+		resultContent: redactString(block.resultContent),
+		resultData: block.resultData !== undefined ? redactValue(block.resultData, { truncate: false }) : undefined,
+	};
+}
+
+export function renderToolBlockLines(rawBlock: ToolBlock, width: number): string[] {
+	const block = redactBlockForDisplay(rawBlock);
 	if (width < 8) return [];
 	const isTaskComments = isTaskCommentsResult(block);
 
@@ -774,7 +925,7 @@ export function renderToolBlockLines(block: ToolBlock, width: number): string[] 
 			}
 			const maxLines = RESULT_MAX_LINES;
 			const isError = block.state === "error";
-			const textColor = isError ? FG.error : FG.muted;
+			const textColor = isError ? FG.error : FG.text;
 			for (const line of allWrapped.slice(0, maxLines)) {
 				pushTextLine(`${textColor}${line}${RESET_FG}`);
 			}

@@ -27,6 +27,7 @@ export class AgentLoop {
 	private readonly config: OmsConfig;
 	private readonly onDirty?: () => void;
 	private readonly logAgentId?: string;
+	private readonly onFinisherClosed?: (event: { taskId: string; summary: string; reason: string }) => void;
 
 	private timer: Timer | null = null;
 	private running = false;
@@ -56,6 +57,7 @@ export class AgentLoop {
 		onDirty?: () => void;
 		logAgentId?: string;
 		crashLogWriter?: SessionLogWriter;
+		onFinisherClosed?: (event: { taskId: string; summary: string; reason: string }) => void;
 	}) {
 		this.tasksClient = opts.tasksClient;
 		this.registry = opts.registry;
@@ -64,6 +66,7 @@ export class AgentLoop {
 		this.config = opts.config ?? DEFAULT_CONFIG;
 		this.onDirty = opts.onDirty;
 		this.logAgentId = opts.logAgentId;
+		this.onFinisherClosed = opts.onFinisherClosed;
 
 		const replicaManagerFromSpawner = (
 			this.spawner as unknown as { getReplicaManager?: () => ReplicaManager | undefined }
@@ -402,11 +405,12 @@ export class AgentLoop {
 		if (action === "close") {
 			const taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
 			const reason = typeof opts.reason === "string" ? opts.reason.trim() : "";
+			const message = typeof opts.message === "string" ? opts.message : "";
 			const agentType = typeof opts.agentType === "string" ? opts.agentType.trim().toLowerCase() : "";
 			const agentId = typeof opts.agentId === "string" ? opts.agentId.trim() : "";
 
 			if (agentType === "finisher") {
-				return await this.handleFinisherCloseTask({ taskId, reason, agentId });
+				return await this.handleFinisherCloseTask({ taskId, reason, agentId, message });
 			}
 			// speedy or any other agent type with close permission
 			return await this.#handleCloseTask({ taskId, reason, agentId, agentType });
@@ -725,6 +729,7 @@ export class AgentLoop {
 		taskId?: string;
 		reason?: string;
 		agentId?: string;
+		message?: string;
 	}): Promise<Record<string, unknown>> {
 		const taskId = typeof opts.taskId === "string" ? opts.taskId.trim() : "";
 		if (!taskId) {
@@ -733,6 +738,7 @@ export class AgentLoop {
 
 		const reason = typeof opts.reason === "string" ? opts.reason.trim() : "";
 		const agentId = typeof opts.agentId === "string" ? opts.agentId.trim() : "";
+		const message = typeof opts.message === "string" ? opts.message.trim() : "";
 
 		const finishers = this.registry.getActiveByTask(taskId).filter(agent => agent.agentType === "finisher");
 		const finisherWithReplica =
@@ -741,6 +747,26 @@ export class AgentLoop {
 			) ?? finishers.find(agent => typeof agent.replicaDir === "string" && agent.replicaDir.trim());
 		const replicaDir =
 			typeof finisherWithReplica?.replicaDir === "string" ? finisherWithReplica.replicaDir.trim() : "";
+
+		// Best-effort: capture the finisher's last assistant text BEFORE we abort
+		// its rpc. This becomes the fallback summary for the SingularityPane notice
+		// when the finisher did not include an explicit `message` in advance_lifecycle.
+		const summarySource =
+			finishers.find(a => a.id === agentId && a.rpc instanceof OmsRpcClient) ??
+			finishers.find(a => a.rpc instanceof OmsRpcClient);
+		let assistantText = "";
+		if (summarySource?.rpc instanceof OmsRpcClient) {
+			try {
+				assistantText = (await summarySource.rpc.getLastAssistantText()) ?? "";
+			} catch (err) {
+				this.loopLog(`Failed to read finisher last assistant text for ${taskId} (non-fatal)`, "debug", {
+					taskId,
+					err: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+		const summary = [message, assistantText.trim(), reason].find(part => part.length > 0) ?? "";
+		this.#emitFinisherClosed(taskId, summary, reason);
 
 		if (this.config.enableReplicas && this.#replicaManager && replicaDir) {
 			let replicaExists = false;
@@ -808,6 +834,18 @@ export class AgentLoop {
 			agentId: agentId || null,
 			abortedFinisherCount,
 		};
+	}
+
+	#emitFinisherClosed(taskId: string, summary: string, reason: string): void {
+		if (!this.onFinisherClosed) return;
+		try {
+			this.onFinisherClosed({ taskId, summary, reason });
+		} catch (err) {
+			this.loopLog(`onFinisherClosed handler threw for ${taskId} (non-fatal)`, "warn", {
+				taskId,
+				err: err instanceof Error ? err.message : String(err),
+			});
+		}
 	}
 
 	async handleExternalTaskClose(taskId: string): Promise<void> {
@@ -1270,7 +1308,7 @@ export class AgentLoop {
 					}
 				}
 
-				await this.rpcHandlerManager.finishAgent(agent, "stopped");
+				await this.rpcHandlerManager.finishAgent(agent, "stopped", { classification: "user_killed" });
 
 				if (agent.taskId) stoppedTaskIds.add(agent.taskId);
 

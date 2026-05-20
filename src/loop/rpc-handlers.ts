@@ -1,3 +1,4 @@
+import { type AgentExitClassification, classifyRpcExit } from "../agents/exit-classification";
 import type { AgentRegistry } from "../agents/registry";
 import { OmsRpcClient } from "../agents/rpc-wrapper";
 import { type AgentInfo, createEmptyAgentUsage } from "../agents/types";
@@ -65,7 +66,12 @@ export class RpcHandlerManager {
 	private readonly getLastAssistantText: (agent: AgentInfo) => Promise<string>;
 	private readonly logAgentStart: (startedBy: string, agent: AgentInfo, context?: string) => void;
 	private readonly logAgentFinished: (agent: AgentInfo, explicitText?: string) => Promise<void>;
-	private readonly writeAgentCrashLog: (agent: AgentInfo, reason: string, event?: unknown) => void;
+	private readonly writeAgentCrashLog: (
+		agent: AgentInfo,
+		reason: string,
+		event?: unknown,
+		classification?: AgentExitClassification,
+	) => void;
 	private readonly takeLifecycleRecord: (taskId: string) => LifecycleRecord | null;
 	private readonly hasLifecycleRecord: (taskId: string) => boolean;
 	private readonly spawnWorkerFromFinisherAdvance: (
@@ -110,7 +116,12 @@ export class RpcHandlerManager {
 		getLastAssistantText: (agent: AgentInfo) => Promise<string>;
 		logAgentStart: (startedBy: string, agent: AgentInfo, context?: string) => void;
 		logAgentFinished: (agent: AgentInfo, explicitText?: string) => Promise<void>;
-		writeAgentCrashLog: (agent: AgentInfo, reason: string, event?: unknown) => void;
+		writeAgentCrashLog: (
+			agent: AgentInfo,
+			reason: string,
+			event?: unknown,
+			classification?: AgentExitClassification,
+		) => void;
 		takeLifecycleRecord: (taskId: string) => LifecycleRecord | null;
 		hasLifecycleRecord: (taskId: string) => boolean;
 		spawnWorkerFromFinisherAdvance: (taskId: string, kickoffMessage?: string | null) => Promise<AgentInfo>;
@@ -294,7 +305,8 @@ export class RpcHandlerManager {
 					const rpc = agent.rpc;
 					const ageMs = Date.now() - (agent.spawnedAt ?? 0);
 					const maxWaitMs = ageMs < 300_000 ? 300_000 : 60_000;
-					const continued = rpc && rpc instanceof OmsRpcClient ? await rpc.waitForAutoLoopContinuation(maxWaitMs) : false;
+					const continued =
+						rpc && rpc instanceof OmsRpcClient ? await rpc.waitForAutoLoopContinuation(maxWaitMs) : false;
 					if (continued) {
 						// Auto-loop extension restarted the agent; leave it running.
 						this.wake();
@@ -400,7 +412,8 @@ export class RpcHandlerManager {
 					const rpc = agent.rpc;
 					const ageMs = Date.now() - (agent.spawnedAt ?? 0);
 					const maxWaitMs = ageMs < 300_000 ? 300_000 : 60_000;
-					const continued = rpc && rpc instanceof OmsRpcClient ? await rpc.waitForAutoLoopContinuation(maxWaitMs) : false;
+					const continued =
+						rpc && rpc instanceof OmsRpcClient ? await rpc.waitForAutoLoopContinuation(maxWaitMs) : false;
 					if (continued) {
 						// Auto-loop extension restarted the agent; leave it running.
 						this.wake();
@@ -739,6 +752,16 @@ export class RpcHandlerManager {
 			return;
 		}
 		const nextStatus = exitCode === 0 && !rpcExitError ? "done" : "dead";
+		const sawAgentEnd = agent.events.some(e => e.type === "agent_end");
+		const classification =
+			nextStatus === "done"
+				? "completed"
+				: classifyRpcExit({
+						exitCode,
+						rpcExitError,
+						sawAgentEnd,
+						compactionCount: agent.compactionCount,
+					});
 		await this.finishAgent(
 			agent,
 			nextStatus,
@@ -748,8 +771,9 @@ export class RpcHandlerManager {
 							? `rpc_exit error=${rpcExitError}`
 							: `rpc_exit exitCode=${exitCode ?? "unknown"}`,
 						crashEvent: event,
+						classification,
 					}
-				: undefined,
+				: { classification },
 		);
 		await this.logAgentFinished(agent);
 		this.wake();
@@ -758,16 +782,28 @@ export class RpcHandlerManager {
 	async finishAgent(
 		agent: AgentInfo,
 		status: "done" | "stopped" | "dead",
-		opts?: { crashReason?: string; crashEvent?: unknown },
+		opts?: {
+			crashReason?: string;
+			crashEvent?: unknown;
+			classification?: AgentExitClassification;
+		},
 	): Promise<void> {
 		const current = this.registry.get(agent.id);
 		if (current) {
 			current.status = status;
 			current.lastActivity = Date.now();
+			if (opts?.classification) {
+				current.exitClassification = opts.classification;
+			}
 		}
 
 		if (status === "dead") {
-			this.writeAgentCrashLog(agent, opts?.crashReason ?? "agent marked dead", opts?.crashEvent);
+			this.writeAgentCrashLog(
+				agent,
+				opts?.crashReason ?? "agent marked dead",
+				opts?.crashEvent,
+				opts?.classification,
+			);
 		}
 
 		if (agent.tasksAgentId?.trim()) {

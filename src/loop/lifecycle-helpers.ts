@@ -1,3 +1,4 @@
+import type { AgentExitClassification } from "../agents/exit-classification";
 import type { AgentRegistry } from "../agents/registry";
 import { OmsRpcClient } from "../agents/rpc-wrapper";
 import type { AgentInfo } from "../agents/types";
@@ -69,7 +70,12 @@ export class LifecycleHelpers {
 		});
 	}
 
-	writeAgentCrashLog(agent: AgentInfo, reason: string, event?: unknown): void {
+	writeAgentCrashLog(
+		agent: AgentInfo,
+		reason: string,
+		event?: unknown,
+		classification?: AgentExitClassification,
+	): void {
 		if (!this.crashLogWriter) return;
 		if (this.crashLoggedAgents.has(agent.id)) return;
 
@@ -78,9 +84,11 @@ export class LifecycleHelpers {
 		const eventError = rec && typeof rec.error === "string" ? rec.error : "";
 		const rpc = current.rpc;
 		const stderrTail = rpc && rpc instanceof OmsRpcClient ? rpc.getStderr().trim() : "";
+		const effectiveClassification = classification ?? current.exitClassification;
 		const crashPath = this.crashLogWriter.writeCrashLog({
 			context: reason,
 			error: eventError || event || new Error(`Agent ${current.id} (${current.agentType}) marked dead`),
+			classification: effectiveClassification,
 			agent: {
 				id: current.id,
 				agentType: current.agentType,
@@ -93,10 +101,12 @@ export class LifecycleHelpers {
 				contextWindow: current.contextWindow,
 				contextTokens: current.contextTokens,
 				compactionCount: current.compactionCount,
+				exitClassification: effectiveClassification,
 			},
 			recentEvents: current.events.slice(-40),
 			state: {
 				reason,
+				classification: effectiveClassification,
 				exitEvent: event ?? null,
 			},
 			extra: {
@@ -108,7 +118,7 @@ export class LifecycleHelpers {
 		this.loopLog(
 			crashPath ? `Crash log written for ${current.id}: ${crashPath}` : `Crash log write failed for ${current.id}`,
 			"error",
-			{ agentId: current.id, reason, crashPath, event },
+			{ agentId: current.id, reason, classification: effectiveClassification, crashPath, event },
 		);
 	}
 }

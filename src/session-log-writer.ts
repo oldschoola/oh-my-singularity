@@ -1,8 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import type { AgentExitClassification } from "./agents/exit-classification";
 import type { AgentInfo } from "./agents/types";
 import { asRecord, logger } from "./utils";
+import { redactEvent, redactString, redactValue } from "./utils/redact";
 
 const DEFAULT_OMS_LOG_MAX_BYTES = 25 * 1024 * 1024;
 const OMS_LOG_FLUSH_INTERVAL_MS = 100;
@@ -23,6 +25,7 @@ export type CrashLogAgentSnapshot = Pick<
 	| "contextWindow"
 	| "contextTokens"
 	| "compactionCount"
+	| "exitClassification"
 >;
 
 export type CrashLogInput = {
@@ -33,6 +36,7 @@ export type CrashLogInput = {
 	recentEvents?: unknown[];
 	state?: unknown;
 	extra?: unknown;
+	classification?: AgentExitClassification;
 };
 
 function sanitizeToken(value: string, fallback: string, maxLen = 80): string {
@@ -145,7 +149,7 @@ export class SessionLogWriter {
 			ts: eventTs,
 			timestamp: new Date(eventTs).toISOString(),
 			agentId,
-			event,
+			event: redactEvent(event),
 		});
 	}
 
@@ -162,15 +166,18 @@ export class SessionLogWriter {
 		lines.push("");
 		lines.push(`timestamp: ${isoTs}`);
 		lines.push(`context: ${input.context}`);
+		if (input.classification) {
+			lines.push(`classification: ${input.classification}`);
+		}
 		lines.push(`pid: ${process.pid}`);
 		lines.push(`cwd: ${process.cwd()}`);
 		lines.push("");
 		lines.push("error:");
 		lines.push(`name: ${err.name}`);
-		lines.push(`message: ${err.message}`);
+		lines.push(`message: ${redactString(err.message)}`);
 		if (err.stack.trim()) {
 			lines.push("stack:");
-			lines.push(err.stack);
+			lines.push(redactString(err.stack));
 		}
 
 		if (input.agent) {
@@ -180,17 +187,22 @@ export class SessionLogWriter {
 
 		if (input.state !== undefined) {
 			lines.push("");
-			lines.push(formatSection("state", input.state));
+			lines.push(formatSection("state", redactValue(input.state)));
 		}
 
 		if (Array.isArray(input.recentEvents) && input.recentEvents.length > 0) {
 			lines.push("");
-			lines.push(formatSection("recentEvents", input.recentEvents));
+			lines.push(
+				formatSection(
+					"recentEvents",
+					input.recentEvents.map(e => redactEvent(e)),
+				),
+			);
 		}
 
 		if (input.extra !== undefined) {
 			lines.push("");
-			lines.push(formatSection("extra", input.extra));
+			lines.push(formatSection("extra", redactValue(input.extra)));
 		}
 
 		const payload = `${lines.join("\n").trimEnd()}\n`;
@@ -205,13 +217,16 @@ export class SessionLogWriter {
 
 	private buildCrashContextToken(input: CrashLogInput): string {
 		const agent = input.agent;
+		const classification = input.classification ?? agent?.exitClassification;
+		const classToken = classification ? sanitizeToken(classification, "", 24) : "";
 		if (agent) {
 			const agentType = sanitizeToken(agent.agentType, "agent", 24);
 			const idSource = agent.tasksAgentId?.trim() || agent.id?.trim() || "unknown";
 			const idToken = sanitizeToken(idSource, "unknown", 48);
-			return `${agentType}-${idToken}`;
+			return classToken ? `${agentType}-${classToken}-${idToken}` : `${agentType}-${idToken}`;
 		}
-		return sanitizeToken(input.context, "oms", 72);
+		const ctx = sanitizeToken(input.context, "oms", 72);
+		return classToken ? `${ctx}-${classToken}` : ctx;
 	}
 
 	private appendOmsRecord(record: JsonRecord): void {

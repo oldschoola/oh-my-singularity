@@ -1,3 +1,4 @@
+import type { AgentExitClassification } from "../agents/exit-classification";
 import type { AgentRegistry } from "../agents/registry";
 import { OmsRpcClient } from "../agents/rpc-wrapper";
 import type { AgentSpawner } from "../agents/spawner";
@@ -286,7 +287,11 @@ export class SteeringManager {
 	private readonly loopLog: (msg: string, level: LogLevel, data?: unknown) => void;
 	private readonly onDirty?: () => void;
 	private readonly attachRpcHandlers: (agent: AgentInfo) => void;
-	private readonly finishAgent: (agent: AgentInfo, status: "done" | "stopped" | "dead") => Promise<void>;
+	private readonly finishAgent: (
+		agent: AgentInfo,
+		status: "done" | "stopped" | "dead",
+		opts?: { classification?: AgentExitClassification },
+	) => Promise<void>;
 	private readonly logAgentStart: (startedBy: string, agent: AgentInfo, ctx?: string) => void;
 	private readonly logAgentFinished: (agent: AgentInfo, text?: string) => Promise<void>;
 	private readonly stopAgentsMatching: (pred: (a: AgentInfo) => boolean) => Promise<Set<string>>;
@@ -298,7 +303,11 @@ export class SteeringManager {
 		loopLog: (msg: string, level: LogLevel, data?: unknown) => void;
 		onDirty?: () => void;
 		attachRpcHandlers: (agent: AgentInfo) => void;
-		finishAgent: (agent: AgentInfo, status: "done" | "stopped" | "dead") => Promise<void>;
+		finishAgent: (
+			agent: AgentInfo,
+			status: "done" | "stopped" | "dead",
+			opts?: { classification?: AgentExitClassification },
+		) => Promise<void>;
 		logAgentStart: (startedBy: string, agent: AgentInfo, ctx?: string) => void;
 		logAgentFinished: (agent: AgentInfo, text?: string) => Promise<void>;
 		stopAgentsMatching: (pred: (a: AgentInfo) => boolean) => Promise<Set<string>>;
@@ -495,7 +504,7 @@ export class SteeringManager {
 				}
 			}
 		}
-		await this.finishAgent(agent, "stopped");
+		await this.finishAgent(agent, "stopped", { classification: "user_killed" });
 		this.onAgentStopped(agent.id);
 	}
 	async interruptAgent(taskId: string, message: string): Promise<boolean> {
@@ -540,7 +549,7 @@ export class SteeringManager {
 							agentId: agent.id,
 							error: err instanceof Error ? err.message : String(err),
 						});
-						await this.finishAgent(agent, "stopped");
+						await this.finishAgent(agent, "stopped", { classification: "user_killed" });
 						this.onAgentStopped(agent.id);
 						this.queuePendingInterruptKickoff(normalizedTaskId, interruptMessage);
 					}
@@ -623,7 +632,7 @@ export class SteeringManager {
 		}
 
 		if (this.hasFinisherTakeover(taskId)) {
-			await this.finishAgent(steering, "stopped");
+			await this.finishAgent(steering, "stopped", { classification: "user_killed" });
 			return;
 		}
 
@@ -704,7 +713,11 @@ export class SteeringManager {
 				logger.debug("loop/steering.ts: best-effort failure after steeringRpc.forceKill();", { err });
 			}
 			if (!text || !text.trim()) {
-				await this.finishAgent(steering, this.hasFinisherTakeover(taskId) ? "stopped" : "dead");
+				await this.finishAgent(
+					steering,
+					this.hasFinisherTakeover(taskId) ? "stopped" : "dead",
+					this.hasFinisherTakeover(taskId) ? { classification: "user_killed" } : undefined,
+				);
 				return;
 			}
 		}
@@ -727,7 +740,7 @@ export class SteeringManager {
 		const d = asRecord(decision);
 		const action = d && typeof d.action === "string" ? d.action : null;
 		if (this.hasFinisherTakeover(taskId)) {
-			await this.finishAgent(steering, "stopped");
+			await this.finishAgent(steering, "stopped", { classification: "user_killed" });
 			await this.logAgentFinished(steering, text);
 			return;
 		}

@@ -10,6 +10,8 @@ import * as path from "node:path";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
 
+import { redactString, redactValue } from "./redact";
+
 /** Get the logs directory (~/.oms/logs/) */
 function getLogsDir(): string {
 	return path.join(os.homedir(), ".oms", "logs");
@@ -92,7 +94,7 @@ export interface Logger {
  */
 export function error(message: string, context?: Record<string, unknown>): void {
 	try {
-		winstonLogger.error(message, context);
+		winstonLogger.error(redactString(message), context ? redactValue(context) : context);
 	} catch {
 		// Silently ignore logging failures
 	}
@@ -100,7 +102,7 @@ export function error(message: string, context?: Record<string, unknown>): void 
 
 export function warn(message: string, context?: Record<string, unknown>): void {
 	try {
-		winstonLogger.warn(message, context);
+		winstonLogger.warn(redactString(message), context ? redactValue(context) : context);
 	} catch {
 		// Silently ignore logging failures
 	}
@@ -108,7 +110,7 @@ export function warn(message: string, context?: Record<string, unknown>): void {
 
 export function debug(message: string, context?: Record<string, unknown>): void {
 	try {
-		winstonLogger.debug(message, context);
+		winstonLogger.debug(redactString(message), context ? redactValue(context) : context);
 	} catch {
 		// Silently ignore logging failures
 	}

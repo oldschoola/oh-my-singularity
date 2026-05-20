@@ -1,5 +1,6 @@
 import path from "node:path";
 import { ensureDirExists } from "../setup/environment";
+import { runDoctorCli } from "./doctor";
 import { Args, Command, type CommandCtor, type CommandEntry, Flags, run as runCli } from "./framework";
 import {
 	printTasksCommandHelp,
@@ -108,6 +109,25 @@ class TasksCommand extends Command {
 	}
 }
 
+class DoctorCommand extends Command {
+	static description = "Diagnose oms install: omp binary, bun version, ~/.oms writability, git, extensions";
+	static args = {
+		targetProjectPath: Args.string({
+			description: "Project root (defaults to cwd)",
+			required: false,
+		}),
+	};
+
+	async run(): Promise<void> {
+		const { args } = await this.parse(DoctorCommand);
+		const targetArg =
+			typeof args.targetProjectPath === "string" && args.targetProjectPath.trim() ? args.targetProjectPath : ".";
+		const projectRoot = path.resolve(process.cwd(), targetArg);
+		const code = await runDoctorCli({ projectRoot });
+		if (code !== 0) process.exit(code);
+	}
+}
+
 function isCliSubcommand(commands: CommandEntry[], first: string | undefined): boolean {
 	if (!first || first.startsWith("-")) return false;
 	return commands.some(entry => entry.name === first || entry.aliases?.includes(first));
@@ -123,6 +143,7 @@ export async function runOmsCli(opts: {
 	const commands: CommandEntry[] = [
 		{ name: "launch", load: async () => launchCommand },
 		{ name: "tasks", load: async () => TasksCommand },
+		{ name: "doctor", load: async () => DoctorCommand },
 	];
 
 	const first = opts.argv[0];
